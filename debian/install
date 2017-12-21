@@ -1,0 +1,3 @@
+bin/cgr-*           /usr/bin/
+data/*              /usr/share/cgrates
+data/conf/cgrates   /etc/

@@ -1,0 +1,30 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+
+export GOPATH=$(CURDIR)
+export GO15VENDOREXPERIMENT=1
+
+PKGDIR=debian/cgrates
+SRCDIR=src/github.com/cgrates/cgrates
+
+%:
+	dh $@
+
+override_dh_clean:
+	rm -rf $(GOPATH)/bin $(GOPATH)/pkg $(GOPATH)/src
+	rm -rf $(GOPATH)/debian/cgrates.debhelper.log
+	rm -f $(GOPATH)/goinstall.log
+
+override_dh_auto_build:
+	mkdir -p src/github.com/cgrates
+	ln -sf $(CURDIR) src/github.com/cgrates/cgrates
+	go get -v github.com/Masterminds/glide
+	$(GOPATH)/bin/glide up
+	exec $(CURDIR)/build.sh
+
+override_dh_installinit:
+	dh_installinit -p ivozprovider-cgrates --name=cgrates --noscripts --no-restart-on-upgrade --no-start
+

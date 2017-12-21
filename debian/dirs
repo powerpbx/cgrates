@@ -1,0 +1,6 @@
+/var/log/cgrates/cdrc/in
+/var/log/cgrates/cdrc/out
+/var/log/cgrates/cdre/csv
+/var/log/cgrates/cdre/fwv
+/var/log/cgrates/history
+/var/log/cgrates/tpe

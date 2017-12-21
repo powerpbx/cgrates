@@ -1,0 +1,15 @@
+Source: ivozprovider-cgrates
+Section: net
+Priority: optional
+Maintainer: Irontec Package Team <packages@irontec.com>
+Build-Depends: debhelper, git, golang, ca-certificates
+Standards-Version: 3.9.1
+Homepage: http://cgrates.org
+
+Package: ivozprovider-cgrates
+Architecture: any
+Suggests: git, redis-server, mysql-server
+Description: IVOZ Provider - Carrier Grade Real-time Charging System
+  CGRateS is a very fast and easy scalable real-time charging system
+  for Telecom environments.
+  .
