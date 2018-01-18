@@ -1,0 +1,90 @@
+commit 0b2154f1cea61dfbc44065113556ba893adccb83
+Author: Carlos Cruz <carlos@irontec.com>
+Date:   Wed Jan 17 18:20:21 2018 +0100
+
+    kamailiosm: return cgrid in CGR_AUTH_REPLY
+
+diff --git a/sessionmanager/kamailiosm.go b/sessionmanager/kamailiosm.go
+index 4aca0c3..14f04c5 100644
+--- a/sessionmanager/kamailiosm.go
++++ b/sessionmanager/kamailiosm.go
+@@ -102,7 +102,7 @@ func (self *KamailioSessionManager) onCgrAuth(evData []byte, connId string) {
+ 		return
+ 	}
+ 	if kev.MissingParameter(self.timezone) {
+-		if kar, err := kev.AsKamAuthReply(0.0, "", false, "", utils.ErrMandatoryIeMissing); err != nil {
++		if kar, err := kev.AsKamAuthReply(0.0, "", false, "", self.timezone, utils.ErrMandatoryIeMissing); err != nil {
+ 			utils.Logger.Err(fmt.Sprintf("<SM-Kamailio> Failed building auth reply %s", err.Error()))
+ 		} else if err = self.conns[connId].Send(kar.String()); err != nil {
+ 			utils.Logger.Err(fmt.Sprintf("<SM-Kamailio> Failed sending auth reply %s", err.Error()))
+@@ -132,7 +132,7 @@ func (self *KamailioSessionManager) onCgrAuth(evData []byte, connId string) {
+ 			resourceAllowed = false
+ 		}
+ 	}
+-	if kar, err := kev.AsKamAuthReply(remainingDuration, supplStr, resourceAllowed, "", errReply); err != nil {
++	if kar, err := kev.AsKamAuthReply(remainingDuration, supplStr, resourceAllowed, "", self.timezone, errReply); err != nil {
+ 		utils.Logger.Err(fmt.Sprintf("<SM-Kamailio> Failed building auth reply %s", err.Error()))
+ 	} else if err = self.conns[connId].Send(kar.String()); err != nil {
+ 		utils.Logger.Err(fmt.Sprintf("<SM-Kamailio> Failed sending auth reply %s", err.Error()))
+@@ -146,7 +146,7 @@ func (self *KamailioSessionManager) onCgrLcrReq(evData []byte, connId string) {
+ 		return
+ 	}
+ 	supplStr, err := self.getSuppliers(kev)
+-	kamLcrReply, errReply := kev.AsKamAuthReply(0, supplStr, false, "", err)
++	kamLcrReply, errReply := kev.AsKamAuthReply(0, supplStr, false, "", self.timezone, err)
+ 	kamLcrReply.Event = CGR_LCR_REPLY // Hit the CGR_LCR_REPLY event route on Kamailio side
+ 	if errReply != nil {
+ 		utils.Logger.Err(fmt.Sprintf("<SM-Kamailio> Failed building LCR reply %s", errReply.Error()))
+@@ -167,7 +167,7 @@ func (self *KamailioSessionManager) onCgrRLReq(evData []byte, connId string) {
+ 		utils.Logger.Err(fmt.Sprintf("<SM-Kamailio> RLs error: %s", err.Error()))
+ 		resourceAllowed = false
+ 	}
+-	kamRLReply, errReply := kev.AsKamAuthReply(0, "", resourceAllowed, "", err)
++	kamRLReply, errReply := kev.AsKamAuthReply(0, "", resourceAllowed, "", self.timezone, err)
+ 	kamRLReply.Event = CGR_RL_REPLY // Hit the CGR_LCR_REPLY event route on Kamailio side
+ 	if errReply != nil {
+ 		utils.Logger.Err(fmt.Sprintf("<SM-Kamailio> Failed building RL reply %s", errReply.Error()))
+diff --git a/sessionmanager/kamevent.go b/sessionmanager/kamevent.go
+index eed1da0..93fab07 100644
+--- a/sessionmanager/kamevent.go
++++ b/sessionmanager/kamevent.go
+@@ -63,6 +63,7 @@ type KamAuthReply struct {
+ 	Suppliers         string // List of suppliers, comma separated
+ 	ResourceAllocated bool
+ 	AllocationMessage string
++	CgrId             string
+ 	Error             string // Reply in case of error
+ }
+ 
+@@ -348,7 +349,7 @@ func (kev KamEvent) String() string {
+ }
+ 
+ func (kev KamEvent) AsKamAuthReply(maxSessionTime float64, suppliers string,
+-	resAllocated bool, allocationMessage string, rplyErr error) (kar *KamAuthReply, err error) {
++	resAllocated bool, allocationMessage string, timezone string, rplyErr error) (kar *KamAuthReply, err error) {
+ 	kar = &KamAuthReply{Event: CGR_AUTH_REPLY, Suppliers: suppliers,
+ 		ResourceAllocated: resAllocated, AllocationMessage: allocationMessage}
+ 	if rplyErr != nil {
+@@ -371,6 +372,7 @@ func (kev KamEvent) AsKamAuthReply(maxSessionTime float64, suppliers string,
+ 		maxSessionTime = maxSessionDur.Seconds()
+ 	}
+ 	kar.MaxSessionTime = int(utils.Round(maxSessionTime, 0, utils.ROUNDING_MIDDLE))
++	kar.CgrId = kev.GetCgrId(timezone)
+ 
+ 	return kar, nil
+ }
+diff --git a/sessionmanager/kamevent_test.go b/sessionmanager/kamevent_test.go
+index 7a068c9..406dc8c 100644
+--- a/sessionmanager/kamevent_test.go
++++ b/sessionmanager/kamevent_test.go
+@@ -61,8 +61,8 @@ func TestNewKamEvent(t *testing.T) {
+ 
+ func TestKevAsKamAuthReply(t *testing.T) {
+ 	expectedKar := &KamAuthReply{Event: CGR_AUTH_REPLY, TransactionIndex: 29223, TransactionLabel: 698469260,
+-		MaxSessionTime: 1200, ResourceAllocated: true, Suppliers: "supplier1,supplier2"}
+-	if rcvKar, err := kamEv.AsKamAuthReply(1200000000000.0, "supplier1,supplier2", true, "", nil); err != nil {
++		MaxSessionTime: 1200, ResourceAllocated: true, CgrId: "764aa0b85ace13e680d56ced3b8155731ca04fc1", Suppliers: "supplier1,supplier2"}
++	if rcvKar, err := kamEv.AsKamAuthReply(1200000000000.0, "supplier1,supplier2", true, "", "UTC", nil); err != nil {
+ 		t.Error(err)
+ 	} else if !reflect.DeepEqual(expectedKar, rcvKar) {
+ 		t.Error("Received KAR: ", rcvKar)
