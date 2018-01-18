@@ -1,0 +1,205 @@
+commit 5ce16815ca691e0f1df0a2678c63765a32357ef0
+Author: Carlos Cruz <carlos@irontec.com>
+Date:   Mon Jan 15 16:07:57 2018 +0100
+
+    cgr-loader: Treat non-existent tables like empty ones
+    
+    In order to avoid having unused tables in database, treat
+    non-existent tables as if they were empty when importing
+    from database.
+    
+    Affected tables:
+    
+    - tp_shared_groups
+    - tp_actions
+    - tp_action_plans
+    - tp_action_triggers
+    - tp_lcr_rules
+    - tp_derived_chargers
+    - tp_cdr_stats
+    - tp_users
+    - tp_aliases
+    - tp_resources
+    - tp_stats
+    - tp_thresholds
+    - tp_filters
+    - tp_suppliers
+    - tp_attributes
+
+diff --git a/engine/storage_sql.go b/engine/storage_sql.go
+index 4d11af0..3e7bcb5 100755
+--- a/engine/storage_sql.go
++++ b/engine/storage_sql.go
+@@ -30,6 +30,7 @@ import (
+ 
+ 	"github.com/cgrates/cgrates/utils"
+ 	"github.com/jinzhu/gorm"
++	"log"
+ )
+ 
+ type SQLImpl interface {
+@@ -1227,6 +1228,10 @@ func (self *SQLStorage) GetTPRatingProfiles(filter *utils.TPRatingProfile) ([]*u
+ }
+ 
+ func (self *SQLStorage) GetTPSharedGroups(tpid, id string) ([]*utils.TPSharedGroups, error) {
++	if !self.db.HasTable(utils.TBLTPSharedGroups) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPSharedGroups)
++		return make([]*utils.TPSharedGroups, 0), utils.ErrNotFound
++	}
+ 	var tpShareGroups TpSharedGroups
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1246,6 +1251,10 @@ func (self *SQLStorage) GetTPSharedGroups(tpid, id string) ([]*utils.TPSharedGro
+ }
+ 
+ func (self *SQLStorage) GetTPLCRs(filter *utils.TPLcrRules) ([]*utils.TPLcrRules, error) {
++	if !self.db.HasTable(utils.TBLTPLcrs) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPLcrs)
++		return make([]*utils.TPLcrRules, 0), utils.ErrNotFound
++	}
+ 	var tpLcrRules TpLcrRules
+ 	q := self.db.Where("tpid = ?", filter.TPid)
+ 	if len(filter.Direction) != 0 {
+@@ -1277,6 +1286,10 @@ func (self *SQLStorage) GetTPLCRs(filter *utils.TPLcrRules) ([]*utils.TPLcrRules
+ }
+ 
+ func (self *SQLStorage) GetTPActions(tpid, id string) ([]*utils.TPActions, error) {
++	if !self.db.HasTable(utils.TBLTPActions) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPActions)
++		return make([]*utils.TPActions, 0), utils.ErrNotFound
++	}
+ 	var tpActions TpActions
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1296,6 +1309,10 @@ func (self *SQLStorage) GetTPActions(tpid, id string) ([]*utils.TPActions, error
+ }
+ 
+ func (self *SQLStorage) GetTPActionTriggers(tpid, id string) ([]*utils.TPActionTriggers, error) {
++	if !self.db.HasTable(utils.TBLTPActionTriggers) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPActionTriggers)
++		return make([]*utils.TPActionTriggers, 0), utils.ErrNotFound
++	}
+ 	var tpActionTriggers TpActionTriggers
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1315,6 +1332,10 @@ func (self *SQLStorage) GetTPActionTriggers(tpid, id string) ([]*utils.TPActionT
+ }
+ 
+ func (self *SQLStorage) GetTPActionPlans(tpid, id string) ([]*utils.TPActionPlan, error) {
++	if !self.db.HasTable(utils.TBLTPActionPlans) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPActionPlans)
++		return make([]*utils.TPActionPlan, 0), utils.ErrNotFound
++	}
+ 	var tpActionPlans TpActionPlans
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1359,6 +1380,10 @@ func (self *SQLStorage) GetTPAccountActions(filter *utils.TPAccountActions) ([]*
+ }
+ 
+ func (self *SQLStorage) GetTPDerivedChargers(filter *utils.TPDerivedChargers) ([]*utils.TPDerivedChargers, error) {
++	if !self.db.HasTable(utils.TBLTPDerivedChargers) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPDerivedChargers)
++		return make([]*utils.TPDerivedChargers, 0), utils.ErrNotFound
++	}
+ 	var tpDerivedChargers TpDerivedChargers
+ 	q := self.db.Where("tpid = ?", filter.TPid)
+ 	if len(filter.Direction) != 0 {
+@@ -1393,6 +1418,10 @@ func (self *SQLStorage) GetTPDerivedChargers(filter *utils.TPDerivedChargers) ([
+ }
+ 
+ func (self *SQLStorage) GetTPCdrStats(tpid, id string) ([]*utils.TPCdrStats, error) {
++	if !self.db.HasTable(utils.TBLTPCdrStats) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPCdrStats)
++		return make([]*utils.TPCdrStats, 0), utils.ErrNotFound
++	}
+ 	var tpCdrStats TpCdrStats
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1436,6 +1465,10 @@ func (self *SQLStorage) SetTPUsers(users []*utils.TPUsers) error {
+ }
+ 
+ func (self *SQLStorage) GetTPUsers(filter *utils.TPUsers) ([]*utils.TPUsers, error) {
++	if !self.db.HasTable(utils.TBLTPUsers) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPUsers)
++		return make([]*utils.TPUsers, 0), utils.ErrNotFound
++	}
+ 	var tpUsers TpUsers
+ 	q := self.db.Where("tpid = ?", filter.TPid)
+ 	if len(filter.Tenant) != 0 {
+@@ -1490,6 +1523,10 @@ func (self *SQLStorage) SetTPAliases(aliases []*utils.TPAliases) error {
+ }
+ 
+ func (self *SQLStorage) GetTPAliases(filter *utils.TPAliases) ([]*utils.TPAliases, error) {
++	if !self.db.HasTable(utils.TBLTPAliases) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPAliases)
++		return make([]*utils.TPAliases, 0), utils.ErrNotFound
++	}
+ 	var tpAliases TpAliases
+ 	q := self.db.Where("tpid = ?", filter.TPid)
+ 	if len(filter.Direction) != 0 {
+@@ -1524,6 +1561,10 @@ func (self *SQLStorage) GetTPAliases(filter *utils.TPAliases) ([]*utils.TPAliase
+ }
+ 
+ func (self *SQLStorage) GetTPResources(tpid, id string) ([]*utils.TPResource, error) {
++	if !self.db.HasTable(utils.TBLTPResources) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPResources)
++		return make([]*utils.TPResource, 0), utils.ErrNotFound
++	}
+ 	var rls TpResources
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1540,6 +1581,10 @@ func (self *SQLStorage) GetTPResources(tpid, id string) ([]*utils.TPResource, er
+ }
+ 
+ func (self *SQLStorage) GetTPStats(tpid, id string) ([]*utils.TPStats, error) {
++	if !self.db.HasTable(utils.TBLTPStats) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPStats)
++		return make([]*utils.TPStats, 0), utils.ErrNotFound
++	}
+ 	var sts TpStatsS
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1556,6 +1601,10 @@ func (self *SQLStorage) GetTPStats(tpid, id string) ([]*utils.TPStats, error) {
+ }
+ 
+ func (self *SQLStorage) GetTPThresholds(tpid, id string) ([]*utils.TPThreshold, error) {
++	if !self.db.HasTable(utils.TBLTPThresholds) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPThresholds)
++		return make([]*utils.TPThreshold, 0), utils.ErrNotFound
++	}
+ 	var ths TpThresholdS
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1572,6 +1621,10 @@ func (self *SQLStorage) GetTPThresholds(tpid, id string) ([]*utils.TPThreshold,
+ }
+ 
+ func (self *SQLStorage) GetTPFilters(tpid, id string) ([]*utils.TPFilterProfile, error) {
++	if !self.db.HasTable(utils.TBLTPFilters) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPFilters)
++		return make([]*utils.TPFilterProfile, 0), utils.ErrNotFound
++	}
+ 	var ths TpFilterS
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1588,6 +1641,10 @@ func (self *SQLStorage) GetTPFilters(tpid, id string) ([]*utils.TPFilterProfile,
+ }
+ 
+ func (self *SQLStorage) GetTPSuppliers(tpid, id string) ([]*utils.TPSupplierProfile, error) {
++	if !self.db.HasTable(utils.TBLTPSuppliers) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPSuppliers)
++		return make([]*utils.TPSupplierProfile, 0), utils.ErrNotFound
++	}
+ 	var sps TpSuppliers
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
+@@ -1604,6 +1661,10 @@ func (self *SQLStorage) GetTPSuppliers(tpid, id string) ([]*utils.TPSupplierProf
+ }
+ 
+ func (self *SQLStorage) GetTPAttributes(tpid, id string) ([]*utils.TPAttributeProfile, error) {
++	if !self.db.HasTable(utils.TBLTPAttributes) {
++		log.Printf("Skipping %q as it does not exist\n", utils.TBLTPAttributes)
++		return make([]*utils.TPAttributeProfile, 0), utils.ErrNotFound
++	}
+ 	var sps TPAttributes
+ 	q := self.db.Where("tpid = ?", tpid)
+ 	if len(id) != 0 {
