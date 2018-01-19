@@ -4,14 +4,17 @@
 # Uncomment this to turn on verbose mode.
 export DH_VERBOSE=1
 
+export GOROOT=/usr/lib/go-1.8
 export GOPATH=$(CURDIR)
 export GO15VENDOREXPERIMENT=1
+
+export PATH := $(PATH):$(GOROOT)/bin
 
 PKGDIR=debian/cgrates
 SRCDIR=src/github.com/cgrates/cgrates
 
 %:
-	dh $@
+	dh $@ --with quilt
 
 override_dh_clean:
 	rm -rf $(GOPATH)/bin $(GOPATH)/pkg $(GOPATH)/src
@@ -22,7 +25,7 @@ override_dh_auto_build:
 	mkdir -p src/github.com/cgrates
 	ln -sf $(CURDIR) src/github.com/cgrates/cgrates
 	go get -v github.com/Masterminds/glide
-	$(GOPATH)/bin/glide up
+	$(GOPATH)/bin/glide install
 	exec $(CURDIR)/build.sh
 
 override_dh_installinit:

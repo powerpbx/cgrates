@@ -1,5 +1,5 @@
-hash: 2daed4c5ed5052824ae5df18b0690a85226f9e3c61c336f83db7fccc6f4ecd51
-updated: 2017-04-21T14:51:07.386488974+02:00
+hash: 364a690f446aa7b05c023420fc05eb90438754e46119c2c92dcec95efbf71b15
+updated: 2018-01-19T16:41:26.693511307+01:00
 imports:
 - name: github.com/bit4bit/gami
   version: 3a7f98e7efce7ed7f22c2169b666910b8abb15dc
@@ -21,6 +21,8 @@ imports:
   version: 3d6beed663452471dec3ca194137a30d379d9e8f
 - name: github.com/cgrates/radigo
   version: 69d4269e21990c0f120b8e60d5b75d533db7f3dd
+  subpackages:
+  - codecs
 - name: github.com/cgrates/rpcclient
   version: dddae42e9344e877627cd4b7aba075d63b452c0b
 - name: github.com/ChrisTrenkamp/goxpath
@@ -43,6 +45,8 @@ imports:
   - xconst
   - xfn
   - xsort
+- name: github.com/codegangsta/cli
+  version: 75104e932ac2ddb944a6ea19d9f9f26316ff1145
 - name: github.com/DisposaBoy/JsonConfigReader
   version: 33a99fdf1d5ee1f79b5077e9c06f955ad356d5f4
 - name: github.com/fiorix/go-diameter
@@ -69,11 +73,17 @@ imports:
   version: 50761b0867bd1d9d069276790bcd4a3bccf2324a
   subpackages:
   - oid
+- name: github.com/Masterminds/semver
+  version: 15d8430ab86497c5c0da827b748823945e1cf1e1
+- name: github.com/Masterminds/vcs
+  version: 6f1c6d150500e452704e9863f68c2559f58616bf
 - name: github.com/mediocregopher/radix.v2
   version: dbcfd490034f823788edc555737247e9ba628b6c
   subpackages:
   - pool
   - redis
+- name: github.com/mitchellh/go-homedir
+  version: b8bc1bf767474819792c23f32d8286a45736f1c6
 - name: github.com/mitchellh/mapstructure
   version: ca63d7c062ee3c9f34db231e352b60012b4fd0c1
 - name: github.com/peterh/liner
@@ -123,4 +133,6 @@ imports:
   - internal/json
   - internal/sasl
   - internal/scram
+- name: gopkg.in/yaml.v2
+  version: d670f9405373e636a5a2765eea47fac0c9bc91a4
 testImports: []
