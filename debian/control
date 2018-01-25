@@ -8,9 +8,17 @@ Homepage: http://cgrates.org
 
 Package: ivozprovider-cgrates
 Architecture: any
-Depends: golang-1.8
+Depends: golang-1.8, ivozprovider-cgrates-tools
 Suggests: git, redis-server, mysql-server
 Description: IVOZ Provider - Carrier Grade Real-time Charging System
+  CGRateS is a very fast and easy scalable real-time charging system
+  for Telecom environments.
+  .
+
+Package: ivozprovider-cgrates-tools
+Architecture: any
+Depends: golang-1.8
+Description: IVOZ Provider - Carrier Grade Real-time Charging System (tools)
   CGRateS is a very fast and easy scalable real-time charging system
   for Telecom environments.
   .

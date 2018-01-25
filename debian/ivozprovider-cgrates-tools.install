@@ -1,0 +1,4 @@
+bin/cgr-console     /usr/bin/
+bin/cgr-loader      /usr/bin/
+bin/cgr-migrator    /usr/bin/
+bin/cgr-tester      /usr/bin/
