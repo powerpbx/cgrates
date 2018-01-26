@@ -1,0 +1,17 @@
+diff --git a/utils/consts.go b/utils/consts.go
+index 5c749fb2..ab25711b 100755
+--- a/utils/consts.go
++++ b/utils/consts.go
+@@ -660,10 +660,10 @@ const (
+ 	TBLTPThresholds       = "tp_thresholds"
+ 	TBLTPFilters          = "tp_filters"
+ 	SMCostsTBL            = "sm_costs"
+-	CDRsTBL               = "cdrs"
++	CDRsTBL               = "tp_cdrs"
+ 	TBLTPSuppliers        = "tp_suppliers"
+ 	TBLTPAttributes       = "tp_attributes"
+-	TBLVersions           = "versions"
++	TBLVersions           = "tp_versions"
+ )
+ 
+ //Cache Name

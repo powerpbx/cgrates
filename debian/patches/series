@@ -1,2 +1,3 @@
 000_allow_non_existent_tables.patch
 001_return_cgrid_in_auth_reply.patch
+002_adapt_tablenames.patch
