@@ -14,7 +14,7 @@ PKGDIR=debian/cgrates
 SRCDIR=src/github.com/cgrates/cgrates
 
 %:
-	dh $@ --with quilt
+	dh $@ --with quilt --with systemd
 
 override_dh_clean:
 	rm -rf $(GOPATH)/bin $(GOPATH)/pkg $(GOPATH)/src
@@ -28,6 +28,10 @@ override_dh_auto_build:
 	$(GOPATH)/bin/glide install
 	exec $(CURDIR)/build.sh
 
-override_dh_installinit:
-	dh_installinit -p ivozprovider-cgrates --name=cgrates --noscripts --no-restart-on-upgrade --no-start
+# Install systemd unit files
+override_dh_systemd_enable:
+	dh_systemd_enable -p ivozprovider-cgrates --name=cgrates
+
+override_dh_systemd_start:
+	dh_systemd_start -p ivozprovider-cgrates --no-restart-on-upgrade --no-start
 
