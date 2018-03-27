@@ -1,0 +1,105 @@
+diff --git a/cmd/cgr-console/cgr-console.go b/cmd/cgr-console/cgr-console.go
+index d3a50baa..69206498 100644
+--- a/cmd/cgr-console/cgr-console.go
++++ b/cmd/cgr-console/cgr-console.go
+@@ -38,7 +38,7 @@ var (
+ 	history_fn   = os.Getenv("HOME") + "/.cgr_history"
+ 	version      = flag.Bool("version", false, "Prints the application version.")
+ 	verbose      = flag.Bool("verbose", false, "Show extra info about command execution.")
+-	server       = flag.String("server", "127.0.0.1:2012", "server address host:port")
++	server       = flag.String("server", "trunks.ivozprovider.local:2012", "server address host:port")
+ 	rpc_encoding = flag.String("rpc_encoding", "json", "RPC encoding used <gob|json>")
+ 	client       *rpcclient.RpcClient
+ )
+diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
+index 9fcf89e3..a23fc69a 100755
+--- a/cmd/cgr-loader/cgr-loader.go
++++ b/cmd/cgr-loader/cgr-loader.go
+@@ -33,24 +33,24 @@ import (
+ )
+ 
+ var (
+-	datadb_type = flag.String("datadb_type", config.CgrConfig().DataDbType, "The type of the DataDb database <*redis|*mongo>")
+-	datadb_host = flag.String("datadb_host", utils.MetaDynamic, "The DataDb host to connect to.")
+-	datadb_port = flag.String("datadb_port", utils.MetaDynamic, "The DataDb port to bind to.")
+-	datadb_name = flag.String("datadb_name", utils.MetaDynamic, "The name/number of the DataDb to connect to.")
+-	datadb_user = flag.String("datadb_user", utils.MetaDynamic, "The DataDb user to sign in as.")
+-	datadb_pass = flag.String("datadb_passwd", utils.MetaDynamic, "The DataDb user's password.")
++	datadb_type = flag.String("datadb_type", "*redis", "The type of the DataDb database <*redis|*mongo>")
++	datadb_host = flag.String("datadb_host", "data.ivozprovider.local", "The DataDb host to connect to.")
++	datadb_port = flag.String("datadb_port", "6379", "The DataDb port to bind to.")
++	datadb_name = flag.String("datadb_name", "10", "The name/number of the DataDb to connect to.")
++	datadb_user = flag.String("datadb_user", "cgrates", "The DataDb user to sign in as.")
++	datadb_pass = flag.String("datadb_passwd", "", "The DataDb user's password.")
+ 
+-	stor_db_type = flag.String("stordb_type", config.CgrConfig().StorDBType, "The type of the storDb database <*mysql|*postgres|*mongo>")
+-	stor_db_host = flag.String("stordb_host", utils.MetaDynamic, "The storDb host to connect to.")
+-	stor_db_port = flag.String("stordb_port", utils.MetaDynamic, "The storDb port to bind to.")
+-	stor_db_name = flag.String("stordb_name", utils.MetaDynamic, "The name/number of the storDb to connect to.")
+-	stor_db_user = flag.String("stordb_user", utils.MetaDynamic, "The storDb user to sign in as.")
+-	stor_db_pass = flag.String("stordb_passwd", utils.MetaDynamic, "The storDb user's password.")
++	stor_db_type = flag.String("stordb_type", "*mysql", "The type of the storDb database <*mysql|*postgres|*mongo>")
++	stor_db_host = flag.String("stordb_host", "data.ivozprovider.local", "The storDb host to connect to.")
++	stor_db_port = flag.String("stordb_port", "3306", "The storDb port to bind to.")
++	stor_db_name = flag.String("stordb_name", "ivozprovider", "The name/number of the storDb to connect to.")
++	stor_db_user = flag.String("stordb_user", "kamailio", "The storDb user to sign in as.")
++	stor_db_pass = flag.String("stordb_passwd", "ironsecret", "The storDb user's password.")
+ 
+ 	dbdata_encoding = flag.String("dbdata_encoding", config.CgrConfig().DBDataEncoding, "The encoding used to store object data in strings")
+ 
+ 	flush           = flag.Bool("flushdb", false, "Flush the database before importing")
+-	tpid            = flag.String("tpid", "", "The tariff plan id from the database")
++	tpid            = flag.String("tpid", "ivozprovider", "The tariff plan id from the database")
+ 	dataPath        = flag.String("path", "./", "The path to folder containing the data files")
+ 	version         = flag.Bool("version", false, "Prints the application version.")
+ 	verbose         = flag.Bool("verbose", false, "Enable detailed verbose logging output")
+@@ -60,9 +60,9 @@ var (
+ 	fromStorDb      = flag.Bool("from_stordb", false, "Load the tariff plan from storDb to dataDb")
+ 	toStorDb        = flag.Bool("to_stordb", false, "Import the tariff plan from files to storDb")
+ 	rpcEncoding     = flag.String("rpc_encoding", "json", "RPC encoding used <gob|json>")
+-	ralsAddress     = flag.String("rals", config.CgrConfig().RPCJSONListen, "Rater service to contact for cache reloads, empty to disable automatic cache reloads")
+-	cdrstatsAddress = flag.String("cdrstats", config.CgrConfig().RPCJSONListen, "CDRStats service to contact for data reloads, empty to disable automatic data reloads")
+-	usersAddress    = flag.String("users", config.CgrConfig().RPCJSONListen, "Users service to contact for data reloads, empty to disable automatic data reloads")
++	ralsAddress     = flag.String("rals", "trunks.ivozprovider.local:2012", "Rater service to contact for cache reloads, empty to disable automatic cache reloads")
++	cdrstatsAddress = flag.String("cdrstats", "trunks.ivozprovider.local:2012", "CDRStats service to contact for data reloads, empty to disable automatic data reloads")
++	usersAddress    = flag.String("users", "trunks.ivozprovider.local:2012", "Users service to contact for data reloads, empty to disable automatic data reloads")
+ 	runId           = flag.String("runid", "", "Uniquely identify an import/load, postpended to some automatic fields")
+ 	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
+ 	timezone        = flag.String("timezone", config.CgrConfig().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+diff --git a/cmd/cgr-tester/cgr-tester.go b/cmd/cgr-tester/cgr-tester.go
+index 045e6bae..23a8a1d2 100644
+--- a/cmd/cgr-tester/cgr-tester.go
++++ b/cmd/cgr-tester/cgr-tester.go
+@@ -47,13 +47,13 @@ var (
+ 	datadb_user     = flag.String("datadb_user", cgrConfig.DataDbUser, "The DataDb user to sign in as.")
+ 	datadb_pass     = flag.String("datadb_pass", cgrConfig.DataDbPass, "The DataDb user's password.")
+ 	dbdata_encoding = flag.String("dbdata_encoding", cgrConfig.DBDataEncoding, "The encoding used to store object data in strings.")
+-	raterAddress    = flag.String("rater_address", "", "Rater address for remote tests. Empty for internal rater.")
++	raterAddress    = flag.String("rater_address", "trunks.ivozprovider.local:2012", "Rater address for remote tests. Empty for internal rater.")
+ 	tor             = flag.String("tor", utils.VOICE, "The type of record to use in queries.")
+ 	category        = flag.String("category", "call", "The Record category to test.")
+-	tenant          = flag.String("tenant", "cgrates.org", "The type of record to use in queries.")
+-	subject         = flag.String("subject", "1001", "The rating subject to use in queries.")
+-	destination     = flag.String("destination", "1002", "The destination to use in queries.")
+-	json            = flag.Bool("json", false, "Use JSON RPC")
++	tenant          = flag.String("tenant", "b1", "The type of record to use in queries.")
++	subject         = flag.String("subject", "c1", "The rating subject to use in queries.")
++	destination     = flag.String("destination", "+34944048182", "The destination to use in queries.")
++	gorpc           = flag.Bool("gorpc", false, "Use GO-RPC instead of JSON-RPC")
+ 	loadHistorySize = flag.Int("load_history_size", cgrConfig.LoadHistorySize, "Limit the number of records in the load history")
+ 	version         = flag.Bool("version", false, "Prints the application version.")
+ 	nilDuration     = time.Duration(0)
+@@ -103,10 +103,10 @@ func durRemoteRater(cd *engine.CallDescriptor) (time.Duration, error) {
+ 	result := engine.CallCost{}
+ 	var client *rpc.Client
+ 	var err error
+-	if *json {
+-		client, err = jsonrpc.Dial("tcp", *raterAddress)
+-	} else {
++	if *gorpc {
+ 		client, err = rpc.Dial("tcp", *raterAddress)
++	} else {
++		client, err = jsonrpc.Dial("tcp", *raterAddress)
+ 	}
+ 
+ 	if err != nil {
