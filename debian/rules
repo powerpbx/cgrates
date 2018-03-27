@@ -9,6 +9,7 @@ export GOPATH=$(CURDIR)
 export GO15VENDOREXPERIMENT=1
 
 export PATH := $(PATH):$(GOROOT)/bin
+export GIT_LAST_LOG=$(git log -1 | tr -d "'")
 
 PKGDIR=debian/cgrates
 SRCDIR=src/github.com/cgrates/cgrates
@@ -26,7 +27,10 @@ override_dh_auto_build:
 	ln -sf $(CURDIR) src/github.com/cgrates/cgrates
 	go get -v github.com/Masterminds/glide
 	$(GOPATH)/bin/glide install
-	exec $(CURDIR)/build.sh
+	go install -ldflags "-X 'github.com/cgrates/cgrates/utils.GitLastLog=${GIT_LAST_LOG}'" github.com/cgrates/cgrates/cmd/cgr-engine
+	go install -ldflags "-X 'github.com/cgrates/cgrates/utils.GitLastLog=${GIT_LAST_LOG}'" github.com/cgrates/cgrates/cmd/cgr-loader
+	go install -ldflags "-X 'github.com/cgrates/cgrates/utils.GitLastLog=${GIT_LAST_LOG}'" github.com/cgrates/cgrates/cmd/cgr-console
+	go install -ldflags "-X 'github.com/cgrates/cgrates/utils.GitLastLog=${GIT_LAST_LOG}'" github.com/cgrates/cgrates/cmd/cgr-tester
 
 # Install systemd unit files
 override_dh_systemd_enable:

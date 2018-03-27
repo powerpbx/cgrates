@@ -1,2 +1,1 @@
 bin/cgr-engine      /usr/bin/
-data/*              /usr/share/cgrates
