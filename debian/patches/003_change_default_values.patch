@@ -66,6 +66,29 @@ index 9fcf89e3..a23fc69a 100755
  	runId           = flag.String("runid", "", "Uniquely identify an import/load, postpended to some automatic fields")
  	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
  	timezone        = flag.String("timezone", config.CgrConfig().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+diff --git a/cmd/cgr-migrator/cgr-migrator.go b/cmd/cgr-migrator/cgr-migrator.go
+index 88a988df..2beeb37d 100755
+--- a/cmd/cgr-migrator/cgr-migrator.go
++++ b/cmd/cgr-migrator/cgr-migrator.go
+@@ -47,12 +47,12 @@ var (
+ 	inDataDBUser = flag.String("datadb_user", utils.MetaDynamic, "The DataDb user to sign in as.")
+ 	inDataDBPass = flag.String("datadb_passwd", utils.MetaDynamic, "The DataDb user's password.")
+ 
+-	inStorDBType = flag.String("stordb_type", config.CgrConfig().StorDBType, "The type of the StorDB Database <*mysql|*postgres>")
+-	inStorDBHost = flag.String("stordb_host", utils.MetaDynamic, "The StorDB host to connect to.")
+-	inStorDBPort = flag.String("stordb_port", utils.MetaDynamic, "The StorDB port to bind to.")
+-	inStorDBName = flag.String("stordb_name", utils.MetaDynamic, "The name/number of the StorDB to connect to.")
+-	inStorDBUser = flag.String("stordb_user", utils.MetaDynamic, "The StorDB user to sign in as.")
+-	inStorDBPass = flag.String("stordb_passwd", utils.MetaDynamic, "The StorDB user's password.")
++	inStorDBType = flag.String("stordb_type", "*mysql", "The type of the StorDB Database <*mysql|*postgres>")
++	inStorDBHost = flag.String("stordb_host", "data.ivozprovider.local", "The StorDB host to connect to.")
++	inStorDBPort = flag.String("stordb_port", "3306", "The StorDB port to bind to.")
++	inStorDBName = flag.String("stordb_name", "ivozprovider", "The name/number of the StorDB to connect to.")
++	inStorDBUser = flag.String("stordb_user", "kamailio", "The StorDB user to sign in as.")
++	inStorDBPass = flag.String("stordb_passwd", "ironsecret", "The StorDB user's password.")
+ 
+ 	outDataDBType = flag.String("out_datadb_type", utils.MetaDynamic, "The type of the DataDb Database <*redis|*mongo>")
+ 	outDataDBHost = flag.String("out_datadb_host", utils.MetaDynamic, "The DataDb host to connect to.")
 diff --git a/cmd/cgr-tester/cgr-tester.go b/cmd/cgr-tester/cgr-tester.go
 index 045e6bae..23a8a1d2 100644
 --- a/cmd/cgr-tester/cgr-tester.go
