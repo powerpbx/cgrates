@@ -1,0 +1,37 @@
+diff --git a/engine/tp_reader.go b/engine/tp_reader.go
+index 9d602fc8..93f823c0 100755
+--- a/engine/tp_reader.go
++++ b/engine/tp_reader.go
+@@ -359,7 +359,8 @@ func (tpr *TpReader) LoadRatingPlans() (err error) {
+ 			rplBnd.SetTiming(t)
+ 			drs, exists := tpr.destinationRates[rplBnd.DestinationRatesId]
+ 			if !exists {
+-				return fmt.Errorf("could not find destination rate for tag %v", rplBnd.DestinationRatesId)
++				log.Printf("skipping destination rate %q in rating plan %q (not found)", rplBnd.DestinationRatesId, tag)
++				continue
+ 			}
+ 			plan, exists := tpr.ratingPlans[tag]
+ 			if !exists {
+@@ -439,7 +440,8 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
+ 				}
+ 			}
+ 			if !exists {
+-				return fmt.Errorf("could not load rating plans for tag: %v", tpRa.RatingPlanId)
++				log.Printf("skipping rating plan %q in rating profile %q (not found)", tpRa.RatingPlanId, rpf.Id)
++				continue
+ 			}
+ 			rpf.RatingPlanActivations = append(rpf.RatingPlanActivations,
+ 				&RatingPlanActivation{
+@@ -449,7 +451,11 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
+ 					CdrStatQueueIds: strings.Split(tpRa.CdrStatQueueIds, utils.INFIELD_SEP),
+ 				})
+ 		}
+-		tpr.ratingProfiles[tpRpf.KeyId()] = rpf
++		if (len(rpf.RatingPlanActivations) > 0) {
++			tpr.ratingProfiles[tpRpf.KeyId()] = rpf
++		} else {
++			log.Printf("skipping rating profile %q as no valid rating profile found", rpf.Id)
++		}
+ 	}
+ 	return nil
+ }

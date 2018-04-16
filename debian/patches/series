@@ -2,3 +2,4 @@
 001_return_cgrid_in_auth_reply.patch
 002_adapt_tablenames.patch
 003_change_default_values.patch
+004_skip_inconsistent_tariffplans.patch
