@@ -1,0 +1,284 @@
+diff --git a/apier/v1/apier.go b/apier/v1/apier.go
+index 5d1b981a..924e5ccb 100644
+--- a/apier/v1/apier.go
++++ b/apier/v1/apier.go
+@@ -299,12 +299,41 @@ func (self *ApierV1) LoadCdrStats(attrs AttrLoadCdrStats, reply *string) error {
+ 	*reply = OK
+ 	return nil
+ }
++type AttrCleanDataDbUnusedTp struct {
++	TPid    string
++}
++
++// Remove storedb-non-existent rating plans and rating profiles from datadb
++func (self *ApierV1) CleanDataDbUnusedTp(attrs AttrCleanDataDbUnusedTp, reply *string) error {
++	if len(attrs.TPid) == 0 {
++		return utils.NewErrMandatoryIeMissing("TPid")
++	}
++
++	// Read all data from storedb
++	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
++	if err:= dbReader.LoadAll(); err != nil {
++		return utils.NewErrServerError(err)
++	}
++
++	// Clean unreferenced data
++	if err := dbReader.CleanDataDb(); err != nil {
++		return err
++	}
++
++	// release tp data
++	dbReader.Init()
++
++	utils.Logger.Info("ApierV1.CleanDataDbUnusedTp ended.")
++	*reply = OK
++	return nil
++}
+ 
+ type AttrLoadTpFromStorDb struct {
+ 	TPid     string
+ 	FlushDb  bool // Flush dataDB before loading
+ 	DryRun   bool // Only simulate, no write
+ 	Validate bool // Run structural checks
++	Cleanup  bool // Clean up unused rpl_ and rpf_
+ }
+ 
+ // Loads complete data in a TP from storDb
+@@ -326,6 +355,13 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+ 		*reply = OK
+ 		return nil // Mission complete, no errors
+ 	}
++
++	if attrs.Cleanup {
++		if err := dbReader.CleanDataDb(); err != nil {
++			return err
++		}
++	}
++
+ 	if err := dbReader.WriteToDatabase(attrs.FlushDb, false, false); err != nil {
+ 		return utils.NewErrServerError(err)
+ 	}
+diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
+index a23fc69a..661c185a 100755
+--- a/cmd/cgr-loader/cgr-loader.go
++++ b/cmd/cgr-loader/cgr-loader.go
+@@ -68,6 +68,7 @@ var (
+ 	timezone        = flag.String("timezone", config.CgrConfig().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+ 	disable_reverse = flag.Bool("disable_reverse_mappings", false, "Will disable reverse mappings rebuilding")
+ 	remove          = flag.Bool("remove", false, "Will remove any data from db that matches data files")
++	cleanup         = flag.Bool("cleanup", false, "Remove unreferenced rating plans and rating profiles")
+ )
+ 
+ func main() {
+@@ -187,6 +188,14 @@ func main() {
+ 	if *dryRun { // We were just asked to parse the data, not saving it
+ 		return
+ 	}
++	if *cleanup {
++		if err := tpReader.CleanDataDb(); err != nil {
++			log.Fatal("Error cleaning up unused rating plans/profiles")
++			return
++		} else {
++			log.Println("Cleanup ended succesfully")
++		}
++	}
+ 	if *ralsAddress != "" { // Init connection to rater so we can reload it's data
+ 		if rater, err = rpcclient.NewRpcClient("tcp", *ralsAddress, 3, 3,
+ 			time.Duration(1*time.Second), time.Duration(5*time.Minute), *rpcEncoding, nil, false); err != nil {
+diff --git a/console/clean_datadb_from_unused_tp.go b/console/clean_datadb_from_unused_tp.go
+new file mode 100644
+index 00000000..7e60fe11
+--- /dev/null
++++ b/console/clean_datadb_from_unused_tp.go
+@@ -0,0 +1,63 @@
++/*
++Real-time Online/Offline Charging System (OCS) for Telecom & ISP environments
++Copyright (C) ITsysCOM GmbH
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <http://www.gnu.org/licenses/>
++*/
++
++package console
++
++import "github.com/cgrates/cgrates/apier/v1"
++
++func init() {
++	c := &CleanDataDbUnusedTp{
++		name:      "clean_datadb_from_unused_tp",
++		rpcMethod: "ApierV1.CleanDataDbUnusedTp",
++	}
++	commands[c.Name()] = c
++	c.CommandExecuter = &CommandExecuter{c}
++}
++
++// Commander implementation
++type CleanDataDbUnusedTp struct {
++	name      string
++	rpcMethod string
++	rpcParams *v1.AttrCleanDataDbUnusedTp
++	rpcResult string
++	*CommandExecuter
++}
++
++func (self *CleanDataDbUnusedTp) Name() string {
++	return self.name
++}
++
++func (self *CleanDataDbUnusedTp) RpcMethod() string {
++	return self.rpcMethod
++}
++
++func (self *CleanDataDbUnusedTp) RpcParams(reset bool) interface{} {
++	if reset || self.rpcParams == nil {
++		self.rpcParams = &v1.AttrCleanDataDbUnusedTp{}
++	}
++	return self.rpcParams
++}
++
++func (self *CleanDataDbUnusedTp) PostprocessRpcParams() error {
++	return nil
++}
++
++func (self *CleanDataDbUnusedTp) RpcResult() interface{} {
++	var s string
++	return &s
++}
+diff --git a/engine/storage_interface.go b/engine/storage_interface.go
+index 05b7091e..e05053cd 100755
+--- a/engine/storage_interface.go
++++ b/engine/storage_interface.go
+@@ -145,6 +145,7 @@ type DataDB interface {
+ 	GetAttributeProfileDrv(string, string) (*AttributeProfile, error)
+ 	SetAttributeProfileDrv(*AttributeProfile) error
+ 	RemoveAttributeProfileDrv(string, string) error
++	RemoveKeys([]string) error
+ }
+ 
+ type StorDB interface {
+diff --git a/engine/storage_map.go b/engine/storage_map.go
+index 7427d726..5e34ec9f 100755
+--- a/engine/storage_map.go
++++ b/engine/storage_map.go
+@@ -98,6 +98,10 @@ func (ms *MapStorage) SelectDatabase(dbName string) (err error) {
+ 	return
+ }
+ 
++func (rs *MapStorage) RemoveKeys(keys []string) (err error) {
++	return errors.New("Not implemented yet")
++}
++
+ func (ms *MapStorage) RebuildReverseForPrefix(prefix string) error {
+ 	// ToDo: should do transaction
+ 	keys, err := ms.GetKeysForPrefix(prefix)
+diff --git a/engine/storage_mongo_datadb.go b/engine/storage_mongo_datadb.go
+index 9f59391f..9a0bcefc 100755
+--- a/engine/storage_mongo_datadb.go
++++ b/engine/storage_mongo_datadb.go
+@@ -22,6 +22,7 @@ import (
+ 	"bytes"
+ 	"compress/zlib"
+ 	"fmt"
++	"errors"
+ 	"io/ioutil"
+ 	"strings"
+ 	"time"
+@@ -377,6 +378,10 @@ func (ms *MongoStorage) SelectDatabase(dbName string) (err error) {
+ 	return
+ }
+ 
++func (rs *MongoStorage) RemoveKeys(keys []string) (err error) {
++	return errors.New("Not implemented yet")
++}
++
+ func (ms *MongoStorage) RebuildReverseForPrefix(prefix string) (err error) {
+ 	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX, utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
+ 		return utils.ErrInvalidKey
+diff --git a/engine/storage_redis.go b/engine/storage_redis.go
+index 1dae9497..59776ad0 100755
+--- a/engine/storage_redis.go
++++ b/engine/storage_redis.go
+@@ -131,6 +131,18 @@ func (rs *RedisStorage) IsDBEmpty() (resp bool, err error) {
+ 	return true, nil
+ }
+ 
++func (rs *RedisStorage) RemoveKeys(keys []string) (err error) {
++	for _, key := range keys {
++		if err = rs.Cmd("DEL", key).Err; err != nil {
++			msg := fmt.Sprintf("Error removing %q", key)
++			utils.Logger.Warning(msg)
++			return err
++		}
++	}
++
++	return nil
++}
++
+ func (rs *RedisStorage) RebuildReverseForPrefix(prefix string) (err error) {
+ 	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX, utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
+ 		return utils.ErrInvalidKey
+diff --git a/engine/tp_reader.go b/engine/tp_reader.go
+index fddcb6fa..d03ab26f 100755
+--- a/engine/tp_reader.go
++++ b/engine/tp_reader.go
+@@ -496,6 +496,50 @@ func (tpr *TpReader) LoadSharedGroups() error {
+ 	return tpr.LoadSharedGroupsFiltered(tpr.tpid, false)
+ }
+ 
++func (tpr *TpReader) CleanDataDb() (err error) {
++	var deleteItems []string
++
++	prefixes := []string{
++		utils.RATING_PLAN_PREFIX,
++		utils.RATING_PROFILE_PREFIX,
++	}
++
++	for _, prefix := range prefixes {
++		storedbItems, err := tpr.GetLoadedIds(prefix)
++		if err != nil {
++			return err
++		}
++
++		// Remove from datadb items that do not exist in storedb
++		datadbItems, err := tpr.dm.DataDB().GetKeysForPrefix(prefix)
++		if err != nil {
++			return err
++		}
++
++		for _, datadbItem := range datadbItems {
++			delete := true
++			for _, storedbItem := range storedbItems {
++				if datadbItem == prefix + storedbItem {
++					delete = false
++					break
++				}
++			}
++
++			if delete {
++				msg := fmt.Sprintf("Removing %q as not found in storedb", datadbItem)
++				utils.Logger.Debug(msg)
++				deleteItems = append(deleteItems, datadbItem)
++			}
++		}
++	}
++
++	if err := tpr.dm.DataDB().RemoveKeys(deleteItems); err != nil {
++		return err
++	}
++
++	return nil
++}
++
+ func (tpr *TpReader) LoadLCRs() (err error) {
+ 	tps, err := tpr.lr.GetTPLCRs(&utils.TPLcrRules{TPid: tpr.tpid})
+ 	if err != nil {
