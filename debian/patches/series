@@ -4,3 +4,4 @@
 003_change_default_values.patch
 004_skip_inconsistent_tariffplans.patch
 005_cleanup_unused_rpl_rpf.patch
+006_rating_plan_simulator.patch
