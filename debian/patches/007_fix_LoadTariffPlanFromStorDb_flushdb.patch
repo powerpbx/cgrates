@@ -1,0 +1,41 @@
+diff --git a/apier/v1/apier.go b/apier/v1/apier.go
+index 924e5ccb..9b9540d1 100644
+--- a/apier/v1/apier.go
++++ b/apier/v1/apier.go
+@@ -366,18 +366,24 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+ 	if err := dbReader.WriteToDatabase(attrs.FlushDb, false, false); err != nil {
+ 		return utils.NewErrServerError(err)
+ 	}
+-	utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, reloading cache.")
+-	for _, prfx := range []string{
+-		utils.DESTINATION_PREFIX,
+-		utils.REVERSE_DESTINATION_PREFIX,
+-		utils.ACTION_PLAN_PREFIX,
+-		utils.AccountActionPlansPrefix,
+-		utils.DERIVEDCHARGERS_PREFIX,
+-		utils.ALIASES_PREFIX,
+-		utils.REVERSE_ALIASES_PREFIX} {
+-		loadedIDs, _ := dbReader.GetLoadedIds(prfx)
+-		if err := self.DataManager.CacheDataFromDB(prfx, loadedIDs, true); err != nil {
+-			return utils.NewErrServerError(err)
++
++	if attrs.FlushDb {
++		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, flush cache.")
++		cache.Flush()
++	} else {
++		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, reload cache.")
++		for _, prfx := range []string{
++			utils.DESTINATION_PREFIX,
++			utils.REVERSE_DESTINATION_PREFIX,
++			utils.ACTION_PLAN_PREFIX,
++			utils.AccountActionPlansPrefix,
++			utils.DERIVEDCHARGERS_PREFIX,
++			utils.ALIASES_PREFIX,
++			utils.REVERSE_ALIASES_PREFIX} {
++			loadedIDs, _ := dbReader.GetLoadedIds(prfx)
++			if err := self.DataManager.CacheDataFromDB(prfx, loadedIDs, true); err != nil {
++				return utils.NewErrServerError(err)
++			}
+ 		}
+ 	}
+ 	aps, _ := dbReader.GetLoadedIds(utils.ACTION_PLAN_PREFIX)
