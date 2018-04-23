@@ -6,3 +6,4 @@
 005_cleanup_unused_rpl_rpf.patch
 006_rating_plan_simulator.patch
 007_fix_LoadTariffPlanFromStorDb_flushdb.patch
+008_decrease_loader_logs.patch
