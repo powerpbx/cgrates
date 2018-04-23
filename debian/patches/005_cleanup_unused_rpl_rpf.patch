@@ -1,5 +1,5 @@
 diff --git a/apier/v1/apier.go b/apier/v1/apier.go
-index 5d1b981a..924e5ccb 100644
+index 5d1b981a..d932e4e4 100644
 --- a/apier/v1/apier.go
 +++ b/apier/v1/apier.go
 @@ -299,12 +299,41 @@ func (self *ApierV1) LoadCdrStats(attrs AttrLoadCdrStats, reply *string) error {
@@ -44,7 +44,7 @@ index 5d1b981a..924e5ccb 100644
  }
  
  // Loads complete data in a TP from storDb
-@@ -326,6 +355,13 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+@@ -326,6 +355,14 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
  		*reply = OK
  		return nil // Mission complete, no errors
  	}
@@ -53,13 +53,14 @@ index 5d1b981a..924e5ccb 100644
 +		if err := dbReader.CleanDataDb(); err != nil {
 +			return err
 +		}
++		attrs.FlushDb = true // Cleanup requires flushing cache
 +	}
 +
  	if err := dbReader.WriteToDatabase(attrs.FlushDb, false, false); err != nil {
  		return utils.NewErrServerError(err)
  	}
 diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
-index a23fc69a..661c185a 100755
+index a23fc69a..6a1f67cb 100755
 --- a/cmd/cgr-loader/cgr-loader.go
 +++ b/cmd/cgr-loader/cgr-loader.go
 @@ -68,6 +68,7 @@ var (
@@ -70,7 +71,7 @@ index a23fc69a..661c185a 100755
  )
  
  func main() {
-@@ -187,6 +188,14 @@ func main() {
+@@ -187,6 +188,15 @@ func main() {
  	if *dryRun { // We were just asked to parse the data, not saving it
  		return
  	}
@@ -79,6 +80,7 @@ index a23fc69a..661c185a 100755
 +			log.Fatal("Error cleaning up unused rating plans/profiles")
 +			return
 +		} else {
++			*flush = true // Cleanup requires flushing cache
 +			log.Println("Cleanup ended succesfully")
 +		}
 +	}
