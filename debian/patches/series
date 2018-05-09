@@ -8,3 +8,4 @@
 007_fix_LoadTariffPlanFromStorDb_flushdb.patch
 008_decrease_loader_logs.patch
 009_print_ratingprofiles.patch
+010_fix_ratingprofile_set.patch
