@@ -7,3 +7,4 @@
 006_rating_plan_simulator.patch
 007_fix_LoadTariffPlanFromStorDb_flushdb.patch
 008_decrease_loader_logs.patch
+009_print_ratingprofiles.patch

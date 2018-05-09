@@ -1,0 +1,137 @@
+diff --git a/apier/v1/apier.go b/apier/v1/apier.go
+index 336ebc84..e4febd79 100644
+--- a/apier/v1/apier.go
++++ b/apier/v1/apier.go
+@@ -36,6 +36,7 @@ import (
+ 	"github.com/cgrates/cgrates/utils"
+ 	"github.com/cgrates/rpcclient"
+ 	"github.com/streadway/amqp"
++	"sort"
+ )
+ 
+ const (
+@@ -496,6 +497,52 @@ func (self *ApierV1) SetRatingProfile(attrs AttrSetRatingProfile, reply *string)
+ 	return nil
+ }
+ 
++type AttrPrintRatingProfile struct {
++	Tenant                string                      // Tenant's Id
++	Category              string                      // TypeOfRecord
++	Direction             string                      // Traffic direction, OUT is the only one supported for now
++	Subject               string                      // Rating subject, usually the same as account
++}
++
++// Print rating profiles of given account
++func (self *ApierV1) PrintRatingProfile(attrs AttrPrintRatingProfile, reply *string) (err error) {
++	// Set default values
++	if attrs.Direction == "" {
++		attrs.Direction = utils.OUT
++	}
++	if attrs.Category == "" {
++		attrs.Direction = utils.CALL
++	}
++
++	// Check needed arguments
++	if missing := utils.MissingStructFields(&attrs, []string{"Tenant", "Direction", "Subject", "Category"}); len(missing) != 0 {
++		return utils.NewErrMandatoryIeMissing(missing...)
++	}
++
++	// Get rating profiles
++	tpRpf := utils.TPRatingProfile{Tenant: attrs.Tenant, Category: attrs.Category, Direction: attrs.Direction, Subject: attrs.Subject}
++	keyId := tpRpf.KeyId()
++	var rpfl *engine.RatingProfile
++	if rpfl, err = self.DataManager.GetRatingProfile(keyId, false, utils.NonTransactional); err != nil && err != utils.ErrNotFound {
++		return utils.NewErrServerError(err)
++	}
++	if rpfl == nil {
++		return utils.NewErrServerError(errors.New("No rating profile found"))
++	}
++
++	// Order in order of activation and format output
++	sort.SliceStable(rpfl.RatingPlanActivations, func(i, j int) bool { return rpfl.RatingPlanActivations[i].ActivationTime.Before(rpfl.RatingPlanActivations[j].ActivationTime) })
++	var activations []string
++	for _, ra := range rpfl.RatingPlanActivations {
++		activations = append(activations, fmt.Sprintf("%s (%s)", ra.RatingPlanId, ra.ActivationTime.Format(time.RFC3339)))
++	}
++
++	// Log result and set as reply
++	utils.Logger.Info(fmt.Sprintf("Rating profile %q: ", rpfl.Id) + strings.Join(activations, ", "))
++	*reply = strings.Join(activations, ", ")
++	return nil
++}
++
+ // Deprecated attrs
+ type V1AttrSetActions struct {
+ 	ActionsId string        // Actions id
+diff --git a/console/ratingprofile_print.go b/console/ratingprofile_print.go
+new file mode 100644
+index 00000000..be19e095
+--- /dev/null
++++ b/console/ratingprofile_print.go
+@@ -0,0 +1,66 @@
++/*
++Real-time Online/Offline Charging System (OCS) for Telecom & ISP environments
++Copyright (C) ITsysCOM GmbH
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <http://www.gnu.org/licenses/>
++*/
++
++package console
++
++import (
++	"github.com/cgrates/cgrates/apier/v1"
++	"github.com/cgrates/cgrates/utils"
++)
++
++func init() {
++	c := &CmdSetRatingProfile{
++		name:      "ratingprofile_print",
++		rpcMethod: "ApierV1.PrintRatingProfile",
++	}
++	commands[c.Name()] = c
++	c.CommandExecuter = &CommandExecuter{c}
++}
++
++// Commander implementation
++type CmdPrintRatingProfile struct {
++	name      string
++	rpcMethod string
++	rpcParams *v1.AttrPrintRatingProfile
++	rpcResult string
++	*CommandExecuter
++}
++
++func (self *CmdPrintRatingProfile) Name() string {
++	return self.name
++}
++
++func (self *CmdPrintRatingProfile) RpcMethod() string {
++	return self.rpcMethod
++}
++
++func (self *CmdPrintRatingProfile) RpcParams(reset bool) interface{} {
++	if reset || self.rpcParams == nil {
++		self.rpcParams = &v1.AttrPrintRatingProfile{Direction: utils.OUT, Category: utils.CALL}
++	}
++	return self.rpcParams
++}
++
++func (self *CmdPrintRatingProfile) PostprocessRpcParams() error {
++	return nil
++}
++
++func (self *CmdPrintRatingProfile) RpcResult() interface{} {
++	var s string
++	return &s
++}
