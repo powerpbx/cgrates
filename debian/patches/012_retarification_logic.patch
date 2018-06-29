@@ -1,0 +1,133 @@
+diff --git a/apier/v1/cdrsv1.go b/apier/v1/cdrsv1.go
+index 1c7465fe..dc607eea 100644
+--- a/apier/v1/cdrsv1.go
++++ b/apier/v1/cdrsv1.go
+@@ -66,7 +66,7 @@ func (self *CdrsV1) RateCDRs(attrs utils.AttrRateCdrs, reply *string) error {
+ 	if err != nil {
+ 		return utils.NewErrServerError(err)
+ 	}
+-	if err := self.CdrSrv.RateCDRs(cdrsFltr, attrs.SendToStats); err != nil {
++	if err := self.CdrSrv.RateCDRs(cdrsFltr, attrs.SendToStats, attrs.RerateRated); err != nil {
+ 		return utils.NewErrServerError(err)
+ 	}
+ 	*reply = utils.OK
+diff --git a/console/cdr_rate.go b/console/cdr_rate.go
+new file mode 100644
+index 00000000..276098d5
+--- /dev/null
++++ b/console/cdr_rate.go
+@@ -0,0 +1,64 @@
++/*
++Real-time Online/Offline Charging System (OCS) for Telecom & ISP environments
++Copyright (C) ITsysCOM GmbH
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <http://www.gnu.org/licenses/>
++*/
++
++package console
++
++import (
++	"github.com/cgrates/cgrates/utils"
++)
++
++func init() {
++	c := &CmdRateCDRs{
++		name:      "cdrs_rate",
++		rpcMethod: "CdrsV1.RateCDRs",
++	}
++	commands[c.Name()] = c
++	c.CommandExecuter = &CommandExecuter{c}
++}
++
++// Commander implementation
++type CmdRateCDRs struct {
++	name      string
++	rpcMethod string
++	rpcParams *utils.AttrRateCdrs
++	*CommandExecuter
++}
++
++func (self *CmdRateCDRs) Name() string {
++	return self.name
++}
++
++func (self *CmdRateCDRs) RpcMethod() string {
++	return self.rpcMethod
++}
++
++func (self *CmdRateCDRs) RpcParams(reset bool) interface{} {
++	if reset || self.rpcParams == nil {
++		self.rpcParams = &utils.AttrRateCdrs{}
++	}
++	return self.rpcParams
++}
++
++func (self *CmdRateCDRs) PostprocessRpcParams() error {
++	return nil
++}
++
++func (self *CmdRateCDRs) RpcResult() interface{} {
++	var s string
++	return &s
++}
+diff --git a/engine/cdrs.go b/engine/cdrs.go
+index a6cc81e8..4025450d 100644
+--- a/engine/cdrs.go
++++ b/engine/cdrs.go
+@@ -506,8 +506,31 @@ func (self *CdrServer) replicateCDRs(cdrs []*CDR) (err error) {
+ 	return
+ }
+ 
++func (self *CdrServer) refundCharges(cdr *CDR) error {
++	utils.Logger.Info(fmt.Sprintf("Refund %f to '%s:%s' [cgrid: %s]\n", cdr.Cost, cdr.Tenant, cdr.Account, cdr.CGRID))
++
++	accID := utils.AccountKey(cdr.Tenant, cdr.Account)
++	at := &ActionTiming{}
++	at.SetAccountIDs(utils.StringMap{accID: true})
++
++	a := &Action{
++		ActionType: "*topup",
++		Balance: &BalanceFilter{
++			ID:	 		utils.StringPointer("*default"),
++			Type:		utils.StringPointer("*monetary"),
++			Value:      &utils.ValueFormula{Static: cdr.Cost},
++		},
++	}
++	at.SetActions(Actions{a})
++	if err := at.Execute(nil, nil); err != nil {
++		return err
++	}
++
++	return nil
++}
++
+ // Called by rate/re-rate API, FixMe: deprecate it once new APIer structure is operational
+-func (self *CdrServer) RateCDRs(cdrFltr *utils.CDRsFilter, sendToStats bool) error {
++func (self *CdrServer) RateCDRs(cdrFltr *utils.CDRsFilter, sendToStats bool, refund bool) error {
+ 	cdrs, _, err := self.cdrDb.GetCDRs(cdrFltr, false)
+ 	if err != nil {
+ 		return err
+@@ -515,6 +538,12 @@ func (self *CdrServer) RateCDRs(cdrFltr *utils.CDRsFilter, sendToStats bool) err
+ 	for _, cdr := range cdrs {
+ 		if err := self.deriveRateStoreStatsReplicate(cdr, self.cgrCfg.CDRSStoreCdrs, sendToStats, len(self.cgrCfg.CDRSOnlineCDRExports) != 0); err != nil {
+ 			utils.Logger.Err(fmt.Sprintf("<CDRS> Processing CDR %+v, got error: %s", cdr, err.Error()))
++			continue
++		}
++		if refund {
++			if err := self.refundCharges(cdr) ; err != nil {
++				return err
++			}
+ 		}
+ 	}
+ 	return nil
