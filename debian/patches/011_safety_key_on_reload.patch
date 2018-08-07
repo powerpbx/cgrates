@@ -1,5 +1,5 @@
 diff --git a/apier/v1/apier.go b/apier/v1/apier.go
-index e4febd79..6b134850 100644
+index e4febd79..72245a34 100644
 --- a/apier/v1/apier.go
 +++ b/apier/v1/apier.go
 @@ -335,6 +335,7 @@ type AttrLoadTpFromStorDb struct {
@@ -10,7 +10,7 @@ index e4febd79..6b134850 100644
  }
  
  // Loads complete data in a TP from storDb
-@@ -342,6 +343,19 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+@@ -342,6 +343,21 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
  	if len(attrs.TPid) == 0 {
  		return utils.NewErrMandatoryIeMissing("TPid")
  	}
@@ -21,7 +21,9 @@ index e4febd79..6b134850 100644
 +		var err error
 +		safetyKeyInitValue, err = self.DataManager.DataDB().GetSafetyKey(attrs.SafetyKey)
 +		if err != nil {
-+			return errors.New("Safety key NOT found, quitting")
++			utils.Logger.Info("Safety key NOT found, quitting")
++			*reply = OK
++			return nil
 +		}
 +
 +		utils.Logger.Info("Safety key found, proceed")
@@ -30,7 +32,7 @@ index e4febd79..6b134850 100644
  	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
  	if err := dbReader.LoadAll(); err != nil {
  		return utils.NewErrServerError(err)
-@@ -413,6 +427,25 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+@@ -413,6 +429,25 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
  			return err
  		}
  	}
@@ -57,7 +59,7 @@ index e4febd79..6b134850 100644
  	return nil
  }
 diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
-index 9a32fa23..cef21ed6 100755
+index 9a32fa23..21c5f736 100755
 --- a/cmd/cgr-loader/cgr-loader.go
 +++ b/cmd/cgr-loader/cgr-loader.go
 @@ -69,6 +69,7 @@ var (
@@ -68,7 +70,7 @@ index 9a32fa23..cef21ed6 100755
  )
  
  func main() {
-@@ -117,6 +118,18 @@ func main() {
+@@ -117,6 +118,19 @@ func main() {
  			defer db.Close()
  		}
  	}
@@ -78,7 +80,8 @@ index 9a32fa23..cef21ed6 100755
 +	if len(*safetyKey) > 0 {
 +		safetyKeyInitValue, err = dm.DataDB().GetSafetyKey(*safetyKey)
 +		if err != nil {
-+			log.Fatalln("Safety key NOT found, quitting")
++			log.Println("Safety key NOT found, quitting")
++			return
 +		}
 +
 +		log.Printf("Safety key found, proceed")
@@ -87,7 +90,7 @@ index 9a32fa23..cef21ed6 100755
  	// Init necessary db connections, only if not already
  	if !*dryRun { // make sure we do not need db connections on dry run, also not importing into any stordb
  		if *toStorDb { // Import files from a directory into storDb
-@@ -336,6 +349,24 @@ func main() {
+@@ -336,6 +350,24 @@ func main() {
  
  			}
  		}
