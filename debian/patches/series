@@ -11,3 +11,4 @@
 010_fix_ratingprofile_set.patch
 012_retarification_logic.patch
 013_asr_for_failed_calls.patch
+014_smart_destination_write.patch
