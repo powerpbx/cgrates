@@ -23,7 +23,7 @@ index 6007105a..c93049d4 100755
  			}
  			if err = rater.Call("ApierV1.ReloadCache", utils.AttrReloadCache{ArgsCache: utils.ArgsCache{
 diff --git a/engine/tp_reader.go b/engine/tp_reader.go
-index 5b68c0d7..25ce0622 100755
+index 5b68c0d7..f5ac99d2 100755
 --- a/engine/tp_reader.go
 +++ b/engine/tp_reader.go
 @@ -2082,6 +2082,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
@@ -54,7 +54,7 @@ index 5b68c0d7..25ce0622 100755
  	if verbose {
  		log.Print("Rating Profiles:")
 +	} else {
-+		log.Println("Rating Profiles:", len(tpr.ratingPlans))
++		log.Println("Rating Profiles:", len(tpr.ratingProfiles))
  	}
  	for _, rp := range tpr.ratingProfiles {
  		err = tpr.dm.SetRatingProfile(rp, utils.NonTransactional)
