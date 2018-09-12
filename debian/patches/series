@@ -9,6 +9,5 @@
 008_decrease_loader_logs.patch
 009_print_ratingprofiles.patch
 010_fix_ratingprofile_set.patch
-011_safety_key_on_reload.patch
 012_retarification_logic.patch
 013_asr_for_failed_calls.patch
