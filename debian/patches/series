@@ -13,3 +13,4 @@
 013_asr_for_failed_calls.patch
 014_smart_destination_write.patch
 015_mandatory_tpid.patch
+016_increase_loader_log.patch
