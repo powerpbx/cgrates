@@ -14,3 +14,4 @@
 014_smart_destination_write.patch
 015_mandatory_tpid.patch
 016_increase_loader_log.patch
+017_skip_incomplete_lcr_rules.patch
