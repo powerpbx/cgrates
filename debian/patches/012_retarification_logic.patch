@@ -124,7 +124,7 @@ index a6cc81e8..4025450d 100644
  			utils.Logger.Err(fmt.Sprintf("<CDRS> Processing CDR %+v, got error: %s", cdr, err.Error()))
 +			continue
 +		}
-+		if refund {
++		if refund && cdr.Cost > 0 {
 +			if err := self.refundCharges(cdr) ; err != nil {
 +				return err
 +			}
