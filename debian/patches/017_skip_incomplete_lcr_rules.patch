@@ -1,0 +1,14 @@
+diff --git a/engine/tp_reader.go b/engine/tp_reader.go
+index 08cad566..b6cfb97d 100755
+--- a/engine/tp_reader.go
++++ b/engine/tp_reader.go
+@@ -572,7 +572,8 @@ func (tpr *TpReader) LoadLCRs() (err error) {
+ 					}
+ 				}
+ 				if !found {
+-					return fmt.Errorf("[LCR] could not find ratingProfiles with prefix %s", ratingProfileSearchKey)
++					fmt.Printf("[LCR] Skip %q as ratingProfile %q not found\n", tpLcr.GetLcrRuleId(), rule.RpCategory)
++					break
+ 				}
+ 
+ 				// check destination tags

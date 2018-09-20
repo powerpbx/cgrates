@@ -1,5 +1,5 @@
 diff --git a/apier/v1/apier.go b/apier/v1/apier.go
-index 5d1b981a..d932e4e4 100644
+index 5d1b981a..1d27b0f7 100644
 --- a/apier/v1/apier.go
 +++ b/apier/v1/apier.go
 @@ -299,12 +299,41 @@ func (self *ApierV1) LoadCdrStats(attrs AttrLoadCdrStats, reply *string) error {
@@ -23,7 +23,7 @@ index 5d1b981a..d932e4e4 100644
 +	}
 +
 +	// Clean unreferenced data
-+	if err := dbReader.CleanDataDb(); err != nil {
++	if err := dbReader.CleanDataDb(attrs.TPid); err != nil {
 +		return err
 +	}
 +
@@ -50,7 +50,7 @@ index 5d1b981a..d932e4e4 100644
  	}
 +
 +	if attrs.Cleanup {
-+		if err := dbReader.CleanDataDb(); err != nil {
++		if err := dbReader.CleanDataDb(attrs.TPid); err != nil {
 +			return err
 +		}
 +		attrs.FlushDb = true // Cleanup requires flushing cache
@@ -60,11 +60,11 @@ index 5d1b981a..d932e4e4 100644
  		return utils.NewErrServerError(err)
  	}
 diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
-index a23fc69a..6a1f67cb 100755
+index 7aeb141a..6007105a 100755
 --- a/cmd/cgr-loader/cgr-loader.go
 +++ b/cmd/cgr-loader/cgr-loader.go
 @@ -68,6 +68,7 @@ var (
- 	timezone        = flag.String("timezone", config.CgrConfig().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+ 	timezone        = flag.String("timezone", "UTC", `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
  	disable_reverse = flag.Bool("disable_reverse_mappings", false, "Will disable reverse mappings rebuilding")
  	remove          = flag.Bool("remove", false, "Will remove any data from db that matches data files")
 +	cleanup         = flag.Bool("cleanup", false, "Remove unreferenced rating plans and rating profiles")
@@ -76,7 +76,7 @@ index a23fc69a..6a1f67cb 100755
  		return
  	}
 +	if *cleanup {
-+		if err := tpReader.CleanDataDb(); err != nil {
++		if err := tpReader.CleanDataDb(*tpid); err != nil {
 +			log.Fatal("Error cleaning up unused rating plans/profiles")
 +			return
 +		} else {
@@ -230,29 +230,37 @@ index 1dae9497..59776ad0 100755
  	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX, utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
  		return utils.ErrInvalidKey
 diff --git a/engine/tp_reader.go b/engine/tp_reader.go
-index fddcb6fa..d03ab26f 100755
+index 93f823c0..5b68c0d7 100755
 --- a/engine/tp_reader.go
 +++ b/engine/tp_reader.go
-@@ -496,6 +496,50 @@ func (tpr *TpReader) LoadSharedGroups() error {
+@@ -496,6 +496,57 @@ func (tpr *TpReader) LoadSharedGroups() error {
  	return tpr.LoadSharedGroupsFiltered(tpr.tpid, false)
  }
  
-+func (tpr *TpReader) CleanDataDb() (err error) {
++func (tpr *TpReader) CleanDataDb(tpid string) (err error) {
 +	var deleteItems []string
 +
 +	prefixes := []string{
-+		utils.RATING_PLAN_PREFIX,
 +		utils.RATING_PROFILE_PREFIX,
++		utils.RATING_PLAN_PREFIX,
 +	}
 +
-+	for _, prefix := range prefixes {
++	dataDbPrefixes := []string{
++		fmt.Sprintf("%s*out:%s:", utils.RATING_PROFILE_PREFIX, tpid),
++		fmt.Sprintf("%s%srp", utils.RATING_PLAN_PREFIX, tpid),
++	}
++
++	for idx := range prefixes {
++		dataDbPrefix := dataDbPrefixes[idx]
++		prefix := prefixes[idx]
++
 +		storedbItems, err := tpr.GetLoadedIds(prefix)
 +		if err != nil {
 +			return err
 +		}
 +
 +		// Remove from datadb items that do not exist in storedb
-+		datadbItems, err := tpr.dm.DataDB().GetKeysForPrefix(prefix)
++		datadbItems, err := tpr.dm.DataDB().GetKeysForPrefix(dataDbPrefix)
 +		if err != nil {
 +			return err
 +		}
@@ -267,8 +275,7 @@ index fddcb6fa..d03ab26f 100755
 +			}
 +
 +			if delete {
-+				msg := fmt.Sprintf("Removing %q as not found in storedb", datadbItem)
-+				utils.Logger.Debug(msg)
++				log.Printf("Removing %q as not found in storedb\n", datadbItem)
 +				deleteItems = append(deleteItems, datadbItem)
 +			}
 +		}

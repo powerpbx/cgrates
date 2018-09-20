@@ -12,10 +12,10 @@ index d3a50baa..69206498 100644
  	client       *rpcclient.RpcClient
  )
 diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
-index 9fcf89e3..a23fc69a 100755
+index 9fcf89e3..7aeb141a 100755
 --- a/cmd/cgr-loader/cgr-loader.go
 +++ b/cmd/cgr-loader/cgr-loader.go
-@@ -33,24 +33,24 @@ import (
+@@ -33,19 +33,19 @@ import (
  )
  
  var (
@@ -47,13 +47,7 @@ index 9fcf89e3..a23fc69a 100755
  
  	dbdata_encoding = flag.String("dbdata_encoding", config.CgrConfig().DBDataEncoding, "The encoding used to store object data in strings")
  
- 	flush           = flag.Bool("flushdb", false, "Flush the database before importing")
--	tpid            = flag.String("tpid", "", "The tariff plan id from the database")
-+	tpid            = flag.String("tpid", "ivozprovider", "The tariff plan id from the database")
- 	dataPath        = flag.String("path", "./", "The path to folder containing the data files")
- 	version         = flag.Bool("version", false, "Prints the application version.")
- 	verbose         = flag.Bool("verbose", false, "Enable detailed verbose logging output")
-@@ -60,9 +60,9 @@ var (
+@@ -60,12 +60,12 @@ var (
  	fromStorDb      = flag.Bool("from_stordb", false, "Load the tariff plan from storDb to dataDb")
  	toStorDb        = flag.Bool("to_stordb", false, "Import the tariff plan from files to storDb")
  	rpcEncoding     = flag.String("rpc_encoding", "json", "RPC encoding used <gob|json>")
@@ -65,7 +59,11 @@ index 9fcf89e3..a23fc69a 100755
 +	usersAddress    = flag.String("users", "trunks.ivozprovider.local:2012", "Users service to contact for data reloads, empty to disable automatic data reloads")
  	runId           = flag.String("runid", "", "Uniquely identify an import/load, postpended to some automatic fields")
  	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
- 	timezone        = flag.String("timezone", config.CgrConfig().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+-	timezone        = flag.String("timezone", config.CgrConfig().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
++	timezone        = flag.String("timezone", "UTC", `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+ 	disable_reverse = flag.Bool("disable_reverse_mappings", false, "Will disable reverse mappings rebuilding")
+ 	remove          = flag.Bool("remove", false, "Will remove any data from db that matches data files")
+ )
 diff --git a/cmd/cgr-migrator/cgr-migrator.go b/cmd/cgr-migrator/cgr-migrator.go
 index 88a988df..2beeb37d 100755
 --- a/cmd/cgr-migrator/cgr-migrator.go

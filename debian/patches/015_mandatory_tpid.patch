@@ -1,0 +1,14 @@
+diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
+index c93049d4..339fe50c 100755
+--- a/cmd/cgr-loader/cgr-loader.go
++++ b/cmd/cgr-loader/cgr-loader.go
+@@ -138,6 +138,9 @@ func main() {
+ 		}
+ 	}
+ 	if *fromStorDb { // Load Tariff Plan from storDb into dataDb
++		if *tpid == "" {
++			log.Fatal("TPid required, please define it via *-tpid* command argument.")
++		}
+ 		loader = storDb
+ 	} else { // Default load from csv files to dataDb
+ 		/*for fn, v := range engine.FileValidators {

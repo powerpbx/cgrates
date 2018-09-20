@@ -1,0 +1,71 @@
+diff --git a/apier/v1/apier.go b/apier/v1/apier.go
+index 41facd41..ec6dee00 100644
+--- a/apier/v1/apier.go
++++ b/apier/v1/apier.go
+@@ -342,15 +342,20 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+ 	if len(attrs.TPid) == 0 {
+ 		return utils.NewErrMandatoryIeMissing("TPid")
+ 	}
++	utils.Logger.Info(fmt.Sprintf("ApierV1.LoadTariffPlanFromStorDb called for %q\n", attrs.TPid))
++
+ 	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+ 	if err := dbReader.LoadAll(); err != nil {
++		utils.Logger.Err(err.Error())
+ 		return utils.NewErrServerError(err)
+ 	}
+ 	if attrs.Validate {
+ 		if !dbReader.IsValid() {
+-			*reply = OK
+-			return errors.New("invalid data")
++			err := errors.New("ApierV1.LoadTariffPlanFromStorDb, validation ended with errors")
++			utils.Logger.Err(err.Error())
++			return err
+ 		}
++		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, validation ended successfully")
+ 	}
+ 	if attrs.DryRun {
+ 		*reply = OK
+@@ -359,12 +364,15 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+ 
+ 	if attrs.Cleanup {
+ 		if err := dbReader.CleanDataDb(attrs.TPid); err != nil {
++			utils.Logger.Err(err.Error())
+ 			return err
+ 		}
++		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, cleanup ended succesfully")
+ 		attrs.FlushDb = true // Cleanup requires flushing cache
+ 	}
+ 
+ 	if err := dbReader.WriteToDatabase(attrs.FlushDb, false, false); err != nil {
++		utils.Logger.Err(err.Error())
+ 		return utils.NewErrServerError(err)
+ 	}
+ 
+@@ -383,6 +391,7 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+ 			utils.REVERSE_ALIASES_PREFIX} {
+ 			loadedIDs, _ := dbReader.GetLoadedIds(prfx)
+ 			if err := self.DataManager.CacheDataFromDB(prfx, loadedIDs, true); err != nil {
++				utils.Logger.Err(err.Error())
+ 				return utils.NewErrServerError(err)
+ 			}
+ 		}
+@@ -404,15 +413,19 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply
+ 	if len(cstKeys) != 0 && self.CdrStatsSrv != nil {
+ 		var out int
+ 		if err := self.CdrStatsSrv.Call("CDRStatsV1.ReloadQueues", cstKeys, &out); err != nil {
++			utils.Logger.Err(err.Error())
+ 			return err
+ 		}
+ 	}
+ 	if len(userKeys) != 0 && self.Users != nil {
+ 		var r string
+ 		if err := self.Users.Call("AliasV1.ReloadUsers", "", &r); err != nil {
++			utils.Logger.Err(err.Error())
+ 			return err
+ 		}
+ 	}
++
++	utils.Logger.Info(fmt.Sprintf("ApierV1.LoadTariffPlanFromStorDb ended successfully for %q\n", attrs.TPid))
+ 	*reply = OK
+ 	return nil
+ }

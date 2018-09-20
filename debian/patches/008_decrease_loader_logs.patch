@@ -1,5 +1,5 @@
 diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
-index 6a1f67cb..9a32fa23 100755
+index 6007105a..c93049d4 100755
 --- a/cmd/cgr-loader/cgr-loader.go
 +++ b/cmd/cgr-loader/cgr-loader.go
 @@ -183,6 +183,8 @@ func main() {
@@ -23,10 +23,10 @@ index 6a1f67cb..9a32fa23 100755
  			}
  			if err = rater.Call("ApierV1.ReloadCache", utils.AttrReloadCache{ArgsCache: utils.ArgsCache{
 diff --git a/engine/tp_reader.go b/engine/tp_reader.go
-index 715d7d3e..ea28f488 100755
+index 5b68c0d7..f5ac99d2 100755
 --- a/engine/tp_reader.go
 +++ b/engine/tp_reader.go
-@@ -2075,6 +2075,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2082,6 +2082,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Destinations:")
@@ -35,7 +35,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, d := range tpr.destinations {
  		err = tpr.dm.DataDB().SetDestination(d, utils.NonTransactional)
-@@ -2090,9 +2092,13 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2097,9 +2099,13 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  		for id, vals := range tpr.revDests {
  			log.Printf("\t %s : %+v", id, vals)
  		}
@@ -49,16 +49,16 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, rp := range tpr.ratingPlans {
  		err = tpr.dm.SetRatingPlan(rp, utils.NonTransactional)
-@@ -2105,6 +2111,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2112,6 +2118,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Rating Profiles:")
 +	} else {
-+		log.Println("Rating Profiles:", len(tpr.ratingPlans))
++		log.Println("Rating Profiles:", len(tpr.ratingProfiles))
  	}
  	for _, rp := range tpr.ratingProfiles {
  		err = tpr.dm.SetRatingProfile(rp, utils.NonTransactional)
-@@ -2117,6 +2125,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2124,6 +2132,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Action Plans:")
@@ -67,7 +67,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for k, ap := range tpr.actionPlans {
  		for _, at := range ap.ActionTimings {
-@@ -2161,9 +2171,13 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2168,9 +2178,13 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  		for id, vals := range tpr.acntActionPlans {
  			log.Printf("\t %s : %+v", id, vals)
  		}
@@ -81,7 +81,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for k, atrs := range tpr.actionsTriggers {
  		err = tpr.dm.SetActionTriggers(k, atrs, utils.NonTransactional)
-@@ -2176,6 +2190,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2183,6 +2197,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Shared Groups:")
@@ -90,7 +90,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for k, sg := range tpr.sharedGroups {
  		err = tpr.dm.SetSharedGroup(sg, utils.NonTransactional)
-@@ -2188,6 +2204,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2195,6 +2211,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("LCR Rules:")
@@ -99,7 +99,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for k, lcr := range tpr.lcrs {
  		err = tpr.dm.SetLCR(lcr, utils.NonTransactional)
-@@ -2200,6 +2218,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2207,6 +2225,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Actions:")
@@ -108,7 +108,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for k, as := range tpr.actions {
  		err = tpr.dm.SetActions(k, as, utils.NonTransactional)
-@@ -2212,6 +2232,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2219,6 +2239,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Account Actions:")
@@ -117,7 +117,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, ub := range tpr.accountActions {
  		err = tpr.dm.DataDB().SetAccount(ub)
-@@ -2224,6 +2246,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2231,6 +2253,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Derived Chargers:")
@@ -126,7 +126,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for key, dcs := range tpr.derivedChargers {
  		err = tpr.dm.DataDB().SetDerivedChargers(key, dcs, utils.NonTransactional)
-@@ -2236,6 +2260,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2243,6 +2267,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("CDR Stats Queues:")
@@ -135,7 +135,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, sq := range tpr.cdrStats {
  		err = tpr.dm.SetCdrStats(sq)
-@@ -2248,6 +2274,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2255,6 +2281,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Users:")
@@ -144,7 +144,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, u := range tpr.users {
  		err = tpr.dm.SetUser(u)
-@@ -2260,6 +2288,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2267,6 +2295,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Aliases:")
@@ -153,7 +153,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, al := range tpr.aliases {
  		err = tpr.dm.DataDB().SetAlias(al, utils.NonTransactional)
-@@ -2275,9 +2305,13 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2282,9 +2312,13 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  		for id, vals := range tpr.revAliases {
  			log.Printf("\t %s : %+v", id, vals)
  		}
@@ -167,7 +167,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, tpTH := range tpr.filters {
  		th, err := APItoFilter(tpTH, tpr.timezone)
-@@ -2293,6 +2327,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2300,6 +2334,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("ResourceProfiles:")
@@ -176,7 +176,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, tpRsp := range tpr.resProfiles {
  		rsp, err := APItoResource(tpRsp, tpr.timezone)
-@@ -2308,6 +2344,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2315,6 +2351,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Resources:")
@@ -185,7 +185,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, rTid := range tpr.resources {
  		if err = tpr.dm.SetResource(&Resource{Tenant: rTid.Tenant, ID: rTid.ID, Usages: make(map[string]*ResourceUsage)}); err != nil {
-@@ -2319,6 +2357,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2326,6 +2364,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("StatQueueProfiles:")
@@ -194,7 +194,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, tpST := range tpr.sqProfiles {
  		st, err := APItoStats(tpST, tpr.timezone)
-@@ -2334,6 +2374,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2341,6 +2381,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("StatQueues:")
@@ -203,7 +203,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, sqTntID := range tpr.statQueues {
  		metrics := make(map[string]StatMetric)
-@@ -2356,6 +2398,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2363,6 +2405,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("ThresholdProfiles:")
@@ -212,7 +212,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, tpTH := range tpr.thProfiles {
  		th, err := APItoThresholdProfile(tpTH, tpr.timezone)
-@@ -2371,6 +2415,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2378,6 +2422,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  	}
  	if verbose {
  		log.Print("Thresholds:")
@@ -221,7 +221,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, thd := range tpr.thresholds {
  		if err = tpr.dm.SetThreshold(&Threshold{Tenant: thd.Tenant, ID: thd.ID}); err != nil {
-@@ -2383,6 +2429,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2390,6 +2436,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  
  	if verbose {
  		log.Print("SupplierProfiles:")
@@ -230,7 +230,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, tpTH := range tpr.sppProfiles {
  		th, err := APItoSupplierProfile(tpTH, tpr.timezone)
-@@ -2399,6 +2447,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2406,6 +2454,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  
  	if verbose {
  		log.Print("AttributeProfiles:")
@@ -239,7 +239,7 @@ index 715d7d3e..ea28f488 100755
  	}
  	for _, tpTH := range tpr.attributeProfiles {
  		th, err := APItoAttributeProfile(tpTH, tpr.timezone)
-@@ -2415,6 +2465,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
+@@ -2422,6 +2472,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err
  
  	if verbose {
  		log.Print("Timings:")
