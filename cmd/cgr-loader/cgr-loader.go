@@ -48,6 +48,8 @@ var (
 	stor_db_pass = flag.String("stordb_passwd", utils.MetaDynamic, "The storDb user's password.")
 
 	dbdata_encoding = flag.String("dbdata_encoding", config.CgrConfig().DBDataEncoding, "The encoding used to store object data in strings")
+	dbRedisSentinel = flag.String("redis_sentinel", config.CgrConfig().DataDbSentinelName,
+		"The name of redis sentinel")
 
 	flush           = flag.Bool("flushdb", false, "Flush the database before importing")
 	tpid            = flag.String("tpid", "", "The tariff plan id from the database")

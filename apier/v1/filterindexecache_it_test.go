@@ -81,9 +81,8 @@ var sTestsFilterIndexesSV1Ca = []func(t *testing.T){
 
 func TestFIdxCaV1ITMySQLConnect(t *testing.T) {
 	cfg, _ := config.NewDefaultCGRConfig()
-	rdsITdb, err = engine.NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 10,
-		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
-
+	rdsITdb, err := engine.NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 10,
+		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, "")
 	if err != nil {
 		t.Fatal("Could not connect to Redis", err.Error())
 	}
@@ -106,7 +105,8 @@ func TestFIdxCaV1ITMongoConnect(t *testing.T) {
 	}
 	if mgoITdb, err = engine.NewMongoStorage(mgoITCfg.DataDbHost, mgoITCfg.DataDbPort,
 		mgoITCfg.DataDbName, mgoITCfg.DataDbUser, mgoITCfg.DataDbPass,
-		utils.DataDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize); err != nil {
+		utils.DataDB, nil, mgoITCfg.CacheCfg())
+	if err != nil {
 		t.Fatal(err)
 	}
 }

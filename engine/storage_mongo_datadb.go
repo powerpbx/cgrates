@@ -127,14 +127,13 @@ func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes
 }
 
 type MongoStorage struct {
-	session         *mgo.Session
-	db              string
-	storageType     string // datadb, stordb
-	ms              Marshaler
-	cacheCfg        config.CacheConfig
-	loadHistorySize int
-	cdrsIndexes     []string
-	cnter           *utils.Counter
+	session     *mgo.Session
+	db          string
+	storageType string // datadb, stordb
+	ms          Marshaler
+	cacheCfg    config.CacheConfig
+	cdrsIndexes []string
+	cnter       *utils.Counter
 }
 
 func (ms *MongoStorage) conn(col string) (*mgo.Session, *mgo.Collection) {

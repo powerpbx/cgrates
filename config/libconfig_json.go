@@ -70,6 +70,7 @@ type DbJsonCfg struct {
 	Conn_max_lifetime *int // Used only in case of storDb
 	Load_history_size *int // Used in case of dataDb to limit the length of the loads history
 	Cdrs_indexes      *[]string
+	Redis_sentinel    *string
 }
 
 // Filters config

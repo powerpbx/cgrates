@@ -801,8 +801,9 @@ func main() {
 
 	if cfg.RALsEnabled || cfg.CDRStatsEnabled || cfg.PubSubServerEnabled ||
 		cfg.AliasesServerEnabled || cfg.UserServerEnabled || cfg.SchedulerEnabled {
-		dm, err = engine.ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
-			cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), cfg.LoadHistorySize)
+		dm, err = engine.ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost,
+			cfg.DataDbPort, cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass,
+			cfg.DBDataEncoding, cfg.CacheCfg(), cfg.DataDbSentinelName)
 		if err != nil { // Cannot configure getter database, show stopper
 			utils.Logger.Crit(fmt.Sprintf("Could not configure dataDb: %s exiting!", err))
 			return

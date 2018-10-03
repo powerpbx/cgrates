@@ -32,17 +32,19 @@ import (
 	"github.com/cgrates/cgrates/utils"
 	"github.com/mediocregopher/radix.v2/pool"
 	"github.com/mediocregopher/radix.v2/redis"
+	"github.com/mediocregopher/radix.v2/sentinel"
 )
 
 type RedisStorage struct {
-	dbPool          *pool.Pool
-	maxConns        int
-	ms              Marshaler
-	cacheCfg        config.CacheConfig
-	loadHistorySize int
+	dbPool         *pool.Pool
+	maxConns       int
+	ms             Marshaler
+	cacheCfg       config.CacheConfig
+	sentinelClient *sentinel.Client
+	sentinelName   string
 }
 
-func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns int, cacheCfg config.CacheConfig, loadHistorySize int) (*RedisStorage, error) {
+func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns int, cacheCfg config.CacheConfig, sentinelName string) (*RedisStorage, error) {
 	df := func(network, addr string) (*redis.Client, error) {
 		client, err := redis.Dial(network, addr)
 		if err != nil {
@@ -62,10 +64,7 @@ func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns i
 		}
 		return client, nil
 	}
-	p, err := pool.NewCustom("tcp", address, maxConns, df)
-	if err != nil {
-		return nil, err
-	}
+
 	var mrshler Marshaler
 	if mrshlerStr == utils.MSGPACK {
 		mrshler = NewCodecMsgpackMarshaler()
@@ -74,13 +73,38 @@ func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns i
 	} else {
 		return nil, fmt.Errorf("Unsupported marshaler: %v", mrshlerStr)
 	}
-	return &RedisStorage{dbPool: p, maxConns: maxConns, ms: mrshler,
-		cacheCfg: cacheCfg, loadHistorySize: loadHistorySize}, nil
+
+	if sentinelName != "" {
+		client, err := sentinel.NewClientCustom("tcp", address, maxConns, df, sentinelName)
+		if err != nil {
+			return nil, err
+		}
+		return &RedisStorage{maxConns: maxConns, ms: mrshler,
+			cacheCfg: cacheCfg, sentinelClient: client,
+			sentinelName: sentinelName}, nil
+	} else {
+		p, err := pool.NewCustom("tcp", address, maxConns, df)
+		if err != nil {
+			return nil, err
+		}
+		return &RedisStorage{dbPool: p, maxConns: maxConns,
+			ms: mrshler, cacheCfg: cacheCfg}, nil
+	}
 }
 
 // This CMD function get a connection from the pool.
 // Handles automatic failover in case of network disconnects
 func (rs *RedisStorage) Cmd(cmd string, args ...interface{}) *redis.Resp {
+	if rs.sentinelName != "" {
+		conn, err := rs.sentinelClient.GetMaster(rs.sentinelName)
+		if err != nil {
+			return redis.NewResp(err)
+		}
+		result := conn.Cmd(cmd, args...)
+		rs.sentinelClient.PutMaster(rs.sentinelName, conn)
+		return result
+	}
+
 	c1, err := rs.dbPool.Get()
 	if err != nil {
 		return redis.NewResp(err)
