@@ -70,6 +70,7 @@ type DbJsonCfg struct {
 	Conn_max_lifetime *int // Used only in case of storDb
 	Load_history_size *int // Used in case of dataDb to limit the length of the loads history
 	Cdrs_indexes      *[]string
+	Redis_sentinel    *string
 }
 
 // Filters config
@@ -466,4 +467,66 @@ type SureTaxJsonCfg struct {
 	Trans_type_code         *string
 	Sales_type_code         *string
 	Tax_exemption_code_list *string
+}
+
+// Dispatcher service config section
+type DispatcherSJsonCfg struct {
+	Enabled              *bool
+	Rals_conns           *[]*HaPoolJsonCfg
+	Resources_conns      *[]*HaPoolJsonCfg
+	Thresholds_conns     *[]*HaPoolJsonCfg
+	Stats_conns          *[]*HaPoolJsonCfg
+	Suppliers_conns      *[]*HaPoolJsonCfg
+	Attributes_conns     *[]*HaPoolJsonCfg
+	Sessions_conns       *[]*HaPoolJsonCfg
+	Chargers_conns       *[]*HaPoolJsonCfg
+	Dispatching_strategy *string
+}
+
+type LoaderCfgJson struct {
+	Tpid            *string
+	Data_path       *string
+	Disable_reverse *bool
+	Caches_conns    *[]*HaPoolJsonCfg
+	Scheduler_conns *[]*HaPoolJsonCfg
+}
+
+type MigratorCfgJson struct {
+	Out_dataDB_type           *string
+	Out_dataDB_host           *string
+	Out_dataDB_port           *string
+	Out_dataDB_name           *string
+	Out_dataDB_user           *string
+	Out_dataDB_password       *string
+	Out_dataDB_encoding       *string
+	Out_dataDB_redis_sentinel *string
+	Out_storDB_type           *string
+	Out_storDB_host           *string
+	Out_storDB_port           *string
+	Out_storDB_name           *string
+	Out_storDB_user           *string
+	Out_storDB_password       *string
+}
+
+type FcTemplateJsonCfg struct {
+	Tag                  *string
+	Type                 *string
+	Field_id             *string
+	Attribute_id         *string
+	Filters              *[]string
+	Value                *string
+	Width                *int
+	Strip                *string
+	Padding              *string
+	Mandatory            *bool
+	New_branch           *bool
+	Timezone             *string
+	Blocker              *bool
+	Break_on_success     *bool
+	Handler_id           *string
+	Layout               *string
+	Cost_shift_digits    *int
+	Rounding_decimals    *int
+	Mask_destinationd_id *string
+	Mask_length          *int
 }

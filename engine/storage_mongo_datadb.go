@@ -97,7 +97,8 @@ var (
 	CostLow            = strings.ToLower(utils.COST)
 )
 
-func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes []string, cacheCfg config.CacheConfig, loadHistorySize int) (ms *MongoStorage, err error) {
+func NewMongoStorage(host, port, db, user, pass, storageType string,
+	cdrsIndexes []string, cacheCfg config.CacheConfig) (ms *MongoStorage, err error) {
 	url := host
 	if port != "" {
 		url += ":" + port
@@ -113,8 +114,8 @@ func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes
 		return nil, err
 	}
 	session.SetMode(mgo.Strong, true)
-	ms = &MongoStorage{db: db, session: session, storageType: storageType, ms: NewCodecMsgpackMarshaler(),
-		cacheCfg: cacheCfg, loadHistorySize: loadHistorySize, cdrsIndexes: cdrsIndexes}
+	ms = &MongoStorage{db: dbName, session: session, storageType: storageType, ms: NewCodecMsgpackMarshaler(),
+		cacheCfg: cacheCfg, cdrsIndexes: cdrsIndexes}
 	if cNames, err := session.DB(ms.db).CollectionNames(); err != nil {
 		return nil, err
 	} else if len(cNames) == 0 { // create indexes only if database is empty
@@ -127,14 +128,13 @@ func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes
 }
 
 type MongoStorage struct {
-	session         *mgo.Session
-	db              string
-	storageType     string // datadb, stordb
-	ms              Marshaler
-	cacheCfg        config.CacheConfig
-	loadHistorySize int
-	cdrsIndexes     []string
-	cnter           *utils.Counter
+	session     *mgo.Session
+	db          string
+	storageType string // datadb, stordb
+	ms          Marshaler
+	cacheCfg    config.CacheConfig
+	cdrsIndexes []string
+	cnter       *utils.Counter
 }
 
 func (ms *MongoStorage) conn(col string) (*mgo.Session, *mgo.Collection) {
