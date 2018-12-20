@@ -131,6 +131,18 @@ func (rs *RedisStorage) IsDBEmpty() (resp bool, err error) {
 	return true, nil
 }
 
+func (rs *RedisStorage) RemoveKeys(keys []string) (err error) {
+	for _, key := range keys {
+		if err = rs.Cmd("DEL", key).Err; err != nil {
+			msg := fmt.Sprintf("Error removing %q", key)
+			utils.Logger.Warning(msg)
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (rs *RedisStorage) RebuildReverseForPrefix(prefix string) (err error) {
 	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX, utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
 		return utils.ErrInvalidKey

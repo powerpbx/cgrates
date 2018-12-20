@@ -145,6 +145,7 @@ type DataDB interface {
 	GetAttributeProfileDrv(string, string) (*AttributeProfile, error)
 	SetAttributeProfileDrv(*AttributeProfile) error
 	RemoveAttributeProfileDrv(string, string) error
+	RemoveKeys([]string) error
 }
 
 type StorDB interface {

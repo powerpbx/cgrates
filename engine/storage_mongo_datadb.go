@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"errors"
 	"io/ioutil"
 	"strings"
 	"time"
@@ -375,6 +376,10 @@ func (ms *MongoStorage) DB() *mgo.Database {
 func (ms *MongoStorage) SelectDatabase(dbName string) (err error) {
 	ms.db = dbName
 	return
+}
+
+func (rs *MongoStorage) RemoveKeys(keys []string) (err error) {
+	return errors.New("Not implemented yet")
 }
 
 func (ms *MongoStorage) RebuildReverseForPrefix(prefix string) (err error) {

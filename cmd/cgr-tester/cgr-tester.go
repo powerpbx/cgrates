@@ -47,13 +47,13 @@ var (
 	datadb_user     = flag.String("datadb_user", cgrConfig.DataDbUser, "The DataDb user to sign in as.")
 	datadb_pass     = flag.String("datadb_pass", cgrConfig.DataDbPass, "The DataDb user's password.")
 	dbdata_encoding = flag.String("dbdata_encoding", cgrConfig.DBDataEncoding, "The encoding used to store object data in strings.")
-	raterAddress    = flag.String("rater_address", "", "Rater address for remote tests. Empty for internal rater.")
+	raterAddress    = flag.String("rater_address", "trunks.ivozprovider.local:2012", "Rater address for remote tests. Empty for internal rater.")
 	tor             = flag.String("tor", utils.VOICE, "The type of record to use in queries.")
 	category        = flag.String("category", "call", "The Record category to test.")
-	tenant          = flag.String("tenant", "cgrates.org", "The type of record to use in queries.")
-	subject         = flag.String("subject", "1001", "The rating subject to use in queries.")
-	destination     = flag.String("destination", "1002", "The destination to use in queries.")
-	json            = flag.Bool("json", false, "Use JSON RPC")
+	tenant          = flag.String("tenant", "b1", "The type of record to use in queries.")
+	subject         = flag.String("subject", "c1", "The rating subject to use in queries.")
+	destination     = flag.String("destination", "+34944048182", "The destination to use in queries.")
+	gorpc           = flag.Bool("gorpc", false, "Use GO-RPC instead of JSON-RPC")
 	loadHistorySize = flag.Int("load_history_size", cgrConfig.LoadHistorySize, "Limit the number of records in the load history")
 	version         = flag.Bool("version", false, "Prints the application version.")
 	nilDuration     = time.Duration(0)
@@ -103,10 +103,10 @@ func durRemoteRater(cd *engine.CallDescriptor) (time.Duration, error) {
 	result := engine.CallCost{}
 	var client *rpc.Client
 	var err error
-	if *json {
-		client, err = jsonrpc.Dial("tcp", *raterAddress)
-	} else {
+	if *gorpc {
 		client, err = rpc.Dial("tcp", *raterAddress)
+	} else {
+		client, err = jsonrpc.Dial("tcp", *raterAddress)
 	}
 
 	if err != nil {

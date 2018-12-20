@@ -98,6 +98,10 @@ func (ms *MapStorage) SelectDatabase(dbName string) (err error) {
 	return
 }
 
+func (rs *MapStorage) RemoveKeys(keys []string) (err error) {
+	return errors.New("Not implemented yet")
+}
+
 func (ms *MapStorage) RebuildReverseForPrefix(prefix string) error {
 	// ToDo: should do transaction
 	keys, err := ms.GetKeysForPrefix(prefix)

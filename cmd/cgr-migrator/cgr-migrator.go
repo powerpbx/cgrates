@@ -47,12 +47,12 @@ var (
 	inDataDBUser = flag.String("datadb_user", utils.MetaDynamic, "The DataDb user to sign in as.")
 	inDataDBPass = flag.String("datadb_passwd", utils.MetaDynamic, "The DataDb user's password.")
 
-	inStorDBType = flag.String("stordb_type", config.CgrConfig().StorDBType, "The type of the StorDB Database <*mysql|*postgres>")
-	inStorDBHost = flag.String("stordb_host", utils.MetaDynamic, "The StorDB host to connect to.")
-	inStorDBPort = flag.String("stordb_port", utils.MetaDynamic, "The StorDB port to bind to.")
-	inStorDBName = flag.String("stordb_name", utils.MetaDynamic, "The name/number of the StorDB to connect to.")
-	inStorDBUser = flag.String("stordb_user", utils.MetaDynamic, "The StorDB user to sign in as.")
-	inStorDBPass = flag.String("stordb_passwd", utils.MetaDynamic, "The StorDB user's password.")
+	inStorDBType = flag.String("stordb_type", "*mysql", "The type of the StorDB Database <*mysql|*postgres>")
+	inStorDBHost = flag.String("stordb_host", "data.ivozprovider.local", "The StorDB host to connect to.")
+	inStorDBPort = flag.String("stordb_port", "3306", "The StorDB port to bind to.")
+	inStorDBName = flag.String("stordb_name", "ivozprovider", "The name/number of the StorDB to connect to.")
+	inStorDBUser = flag.String("stordb_user", "kamailio", "The StorDB user to sign in as.")
+	inStorDBPass = flag.String("stordb_passwd", "ironsecret", "The StorDB user's password.")
 
 	outDataDBType = flag.String("out_datadb_type", utils.MetaDynamic, "The type of the DataDb Database <*redis|*mongo>")
 	outDataDBHost = flag.String("out_datadb_host", utils.MetaDynamic, "The DataDb host to connect to.")

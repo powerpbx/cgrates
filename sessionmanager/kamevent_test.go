@@ -61,8 +61,8 @@ func TestNewKamEvent(t *testing.T) {
 
 func TestKevAsKamAuthReply(t *testing.T) {
 	expectedKar := &KamAuthReply{Event: CGR_AUTH_REPLY, TransactionIndex: 29223, TransactionLabel: 698469260,
-		MaxSessionTime: 1200, ResourceAllocated: true, Suppliers: "supplier1,supplier2"}
-	if rcvKar, err := kamEv.AsKamAuthReply(1200000000000.0, "supplier1,supplier2", true, "", nil); err != nil {
+		MaxSessionTime: 1200, ResourceAllocated: true, CgrId: "764aa0b85ace13e680d56ced3b8155731ca04fc1", Suppliers: "supplier1,supplier2"}
+	if rcvKar, err := kamEv.AsKamAuthReply(1200000000000.0, "supplier1,supplier2", true, "", "UTC", nil); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(expectedKar, rcvKar) {
 		t.Error("Received KAR: ", rcvKar)
