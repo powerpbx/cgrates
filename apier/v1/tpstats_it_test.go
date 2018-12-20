@@ -21,14 +21,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package v1
 
 import (
-	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/utils"
 	"net/rpc"
 	"net/rpc/jsonrpc"
 	"path"
 	"reflect"
 	"testing"
+
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/utils"
 )
 
 var (
@@ -112,7 +113,7 @@ func testTPStatsStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func testTPStatsRpcConn(t *testing.T) {
 	var err error
-	tpStatRPC, err = jsonrpc.Dial("tcp", tpStatCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	tpStatRPC, err = jsonrpc.Dial("tcp", tpStatCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,11 +145,11 @@ func testTPStatsSetTPStat(t *testing.T) {
 				Parameters: "Param1",
 			},
 		},
-		Blocker:    false,
-		Stored:     false,
-		Weight:     20,
-		MinItems:   1,
-		Thresholds: []string{"ThreshValue", "ThreshValueTwo"},
+		Blocker:      false,
+		Stored:       false,
+		Weight:       20,
+		MinItems:     1,
+		ThresholdIDs: []string{"ThreshValue", "ThreshValueTwo"},
 	}
 	var result string
 	if err := tpStatRPC.Call("ApierV1.SetTPStat", tpStat, &result); err != nil {

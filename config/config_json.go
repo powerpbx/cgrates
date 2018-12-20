@@ -22,9 +22,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-
-	"github.com/DisposaBoy/JsonConfigReader"
-	"github.com/cgrates/cgrates/utils"
 )
 
 const (
@@ -39,19 +36,18 @@ const (
 	SCHEDULER_JSN      = "scheduler"
 	CDRS_JSN           = "cdrs"
 	MEDIATOR_JSN       = "mediator"
-	CDRSTATS_JSN       = "cdrstats"
 	CDRE_JSN           = "cdre"
 	CDRC_JSN           = "cdrc"
 	SessionSJson       = "sessions"
 	FreeSWITCHAgentJSN = "freeswitch_agent"
-	SMKAM_JSN          = "sm_kamailio"
+	KamailioAgentJSN   = "kamailio_agent"
 	AsteriskAgentJSN   = "asterisk_agent"
 	SM_JSN             = "session_manager"
 	FS_JSN             = "freeswitch"
-	KAMAILIO_JSN       = "kamailio"
 	OSIPS_JSN          = "opensips"
 	DA_JSN             = "diameter_agent"
 	RA_JSN             = "radius_agent"
+	HttpAgentJson      = "http_agent"
 	HISTSERV_JSN       = "historys"
 	PUBSUBSERV_JSN     = "pubsubs"
 	ALIASESSERV_JSN    = "aliases"
@@ -62,14 +58,21 @@ const (
 	THRESHOLDS_JSON    = "thresholds"
 	SupplierSJson      = "suppliers"
 	FILTERS_JSON       = "filters"
+	LoaderJson         = "loaders"
 	MAILER_JSN         = "mailer"
 	SURETAX_JSON       = "suretax"
+	DispatcherSJson    = "dispatcher"
+	CgrLoaderCfgJson   = "loader"
+	CgrMigratorCfgJson = "migrator"
+	ChargerSCfgJson    = "chargers"
+	TlsCfgJson         = "tls"
+	AnalyzerCfgJson    = "analyzers"
 )
 
 // Loads the json config out of io.Reader, eg other sources than file, maybe over http
 func NewCgrJsonCfgFromReader(r io.Reader) (*CgrJsonCfg, error) {
 	var cgrJsonCfg CgrJsonCfg
-	jr := JsonConfigReader.New(r)
+	jr := NewRawJSONReader(r)
 	if err := json.NewDecoder(jr).Decode(&cgrJsonCfg); err != nil {
 		return nil, err
 	}
@@ -197,18 +200,6 @@ func (self CgrJsonCfg) CdrsJsonCfg() (*CdrsJsonCfg, error) {
 	return cfg, nil
 }
 
-func (self CgrJsonCfg) CdrStatsJsonCfg() (*CdrStatsJsonCfg, error) {
-	rawCfg, hasKey := self[CDRSTATS_JSN]
-	if !hasKey {
-		return nil, nil
-	}
-	cfg := new(CdrStatsJsonCfg)
-	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
 func (self CgrJsonCfg) CdreJsonCfgs() (map[string]*CdreJsonCfg, error) {
 	rawCfg, hasKey := self[CDRE_JSN]
 	if !hasKey {
@@ -257,12 +248,12 @@ func (self CgrJsonCfg) FreeswitchAgentJsonCfg() (*FreeswitchAgentJsonCfg, error)
 	return cfg, nil
 }
 
-func (self CgrJsonCfg) SmKamJsonCfg() (*SmKamJsonCfg, error) {
-	rawCfg, hasKey := self[SMKAM_JSN]
+func (self CgrJsonCfg) KamAgentJsonCfg() (*KamAgentJsonCfg, error) {
+	rawCfg, hasKey := self[KamailioAgentJSN]
 	if !hasKey {
 		return nil, nil
 	}
-	cfg := new(SmKamJsonCfg)
+	cfg := new(KamAgentJsonCfg)
 	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
 		return nil, err
 	}
@@ -303,6 +294,18 @@ func (self CgrJsonCfg) RadiusAgentJsonCfg() (*RadiusAgentJsonCfg, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func (self CgrJsonCfg) HttpAgentJsonCfg() (*[]*HttpAgentJsonCfg, error) {
+	rawCfg, hasKey := self[HttpAgentJson]
+	if !hasKey {
+		return nil, nil
+	}
+	httpAgnt := make([]*HttpAgentJsonCfg, 0)
+	if err := json.Unmarshal(*rawCfg, &httpAgnt); err != nil {
+		return nil, err
+	}
+	return &httpAgnt, nil
 }
 
 func (self CgrJsonCfg) PubSubServJsonCfg() (*PubSubServJsonCfg, error) {
@@ -353,6 +356,18 @@ func (cgrJsn CgrJsonCfg) AttributeServJsonCfg() (*AttributeSJsonCfg, error) {
 	return cfg, nil
 }
 
+func (cgrJsn CgrJsonCfg) ChargerServJsonCfg() (*ChargerSJsonCfg, error) {
+	rawCfg, hasKey := cgrJsn[ChargerSCfgJson]
+	if !hasKey {
+		return nil, nil
+	}
+	cfg := new(ChargerSJsonCfg)
+	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
 func (self CgrJsonCfg) ResourceSJsonCfg() (*ResourceSJsonCfg, error) {
 	rawCfg, hasKey := self[RESOURCES_JSON]
 	if !hasKey {
@@ -366,7 +381,7 @@ func (self CgrJsonCfg) ResourceSJsonCfg() (*ResourceSJsonCfg, error) {
 }
 
 func (self CgrJsonCfg) StatSJsonCfg() (*StatServJsonCfg, error) {
-	rawCfg, hasKey := self[utils.StatS]
+	rawCfg, hasKey := self[STATS_JSON]
 	if !hasKey {
 		return nil, nil
 	}
@@ -401,6 +416,18 @@ func (self CgrJsonCfg) SupplierSJsonCfg() (*SupplierSJsonCfg, error) {
 	return cfg, nil
 }
 
+func (self CgrJsonCfg) LoaderJsonCfg() ([]*LoaderJsonCfg, error) {
+	rawCfg, hasKey := self[LoaderJson]
+	if !hasKey {
+		return nil, nil
+	}
+	cfg := make([]*LoaderJsonCfg, 0)
+	if err := json.Unmarshal(*rawCfg, &cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
 func (self CgrJsonCfg) MailerJsonCfg() (*MailerJsonCfg, error) {
 	rawCfg, hasKey := self[MAILER_JSN]
 	if !hasKey {
@@ -419,6 +446,66 @@ func (self CgrJsonCfg) SureTaxJsonCfg() (*SureTaxJsonCfg, error) {
 		return nil, nil
 	}
 	cfg := new(SureTaxJsonCfg)
+	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func (self CgrJsonCfg) DispatcherSJsonCfg() (*DispatcherSJsonCfg, error) {
+	rawCfg, hasKey := self[DispatcherSJson]
+	if !hasKey {
+		return nil, nil
+	}
+	cfg := new(DispatcherSJsonCfg)
+	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func (self CgrJsonCfg) LoaderCfgJson() (*LoaderCfgJson, error) {
+	rawCfg, hasKey := self[CgrLoaderCfgJson]
+	if !hasKey {
+		return nil, nil
+	}
+	cfg := new(LoaderCfgJson)
+	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func (self CgrJsonCfg) MigratorCfgJson() (*MigratorCfgJson, error) {
+	rawCfg, hasKey := self[CgrMigratorCfgJson]
+	if !hasKey {
+		return nil, nil
+	}
+	cfg := new(MigratorCfgJson)
+	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func (self CgrJsonCfg) TlsCfgJson() (*TlsJsonCfg, error) {
+	rawCfg, hasKey := self[TlsCfgJson]
+	if !hasKey {
+		return nil, nil
+	}
+	cfg := new(TlsJsonCfg)
+	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func (self CgrJsonCfg) AnalyzerCfgJson() (*AnalyzerSJsonCfg, error) {
+	rawCfg, hasKey := self[AnalyzerCfgJson]
+	if !hasKey {
+		return nil, nil
+	}
+	cfg := new(AnalyzerSJsonCfg)
 	if err := json.Unmarshal(*rawCfg, cfg); err != nil {
 		return nil, err
 	}

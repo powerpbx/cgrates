@@ -46,8 +46,8 @@ var partCsvFileContent1 = `4986517174963,004986517174964,DE-National,04.07.2016 
 var partCsvFileContent2 = `4986517174963,004986517174964,DE-National,04.07.2016 19:00:00,04.07.2016 18:58:55,0,15,Offpeak,0.003360,498651,partial`
 var partCsvFileContent3 = `4986517174964,004986517174960,DE-National,04.07.2016 19:05:55,04.07.2016 19:05:55,0,23,Offpeak,0.003360,498651,partial`
 
-var eCacheDumpFile1 = `4986517174963_004986517174964_04.07.2016 18:58:55,1467651535,*rated,086517174963,+4986517174964,2016-07-04T18:58:55+02:00,2016-07-04T18:58:55+02:00,65,-1.00000
-4986517174963_004986517174964_04.07.2016 18:58:55,1467651600,*rated,086517174963,+4986517174964,2016-07-04T18:58:55+02:00,2016-07-04T18:58:55+02:00,15,-1.00000
+var eCacheDumpFile1 = `4986517174963_004986517174964_04.07.2016 18:58:55,1467651535,*rated,086517174963,+4986517174964,2016-07-04T18:58:55+02:00,2016-07-04T18:58:55+02:00,1m5s,-1.00000
+4986517174963_004986517174964_04.07.2016 18:58:55,1467651600,*rated,086517174963,+4986517174964,2016-07-04T18:58:55+02:00,2016-07-04T18:58:55+02:00,15s,-1.00000
 `
 
 func TestPartcsvITInitConfig(t *testing.T) {
@@ -61,6 +61,13 @@ func TestPartcsvITInitConfig(t *testing.T) {
 // InitDb so we can rely on count
 func TestPartcsvITInitCdrDb(t *testing.T) {
 	if err := engine.InitStorDb(partcsvCfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Remove data in both rating and accounting db
+func TestPartcsvITResetDataDb(t *testing.T) {
+	if err := engine.InitDataDb(partcsvCfg); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -94,7 +101,7 @@ func TestPartcsvITStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func TestPartcsvITRpcConn(t *testing.T) {
 	var err error
-	partcsvRPC, err = jsonrpc.Dial("tcp", partcsvCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	partcsvRPC, err = jsonrpc.Dial("tcp", partcsvCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
@@ -105,7 +112,7 @@ func TestPartcsvITHandleCdr1File(t *testing.T) {
 	fileName := "file1.csv"
 	tmpFilePath := path.Join("/tmp", fileName)
 	if err := ioutil.WriteFile(tmpFilePath, []byte(partCsvFileContent1), 0644); err != nil {
-		t.Fatal(err.Error)
+		t.Fatal(err.Error())
 	}
 	if err := os.Rename(tmpFilePath, path.Join(partcsvCDRCDirIn1, fileName)); err != nil {
 		t.Fatal("Error moving file to processing directory: ", err)
@@ -117,7 +124,7 @@ func TestPartcsvITHandleCdr2File(t *testing.T) {
 	fileName := "file2.csv"
 	tmpFilePath := path.Join("/tmp", fileName)
 	if err := ioutil.WriteFile(tmpFilePath, []byte(partCsvFileContent2), 0644); err != nil {
-		t.Fatal(err.Error)
+		t.Fatal(err.Error())
 	}
 	if err := os.Rename(tmpFilePath, path.Join(partcsvCDRCDirIn1, fileName)); err != nil {
 		t.Fatal("Error moving file to processing directory: ", err)
@@ -129,7 +136,7 @@ func TestPartcsvITHandleCdr3File(t *testing.T) {
 	fileName := "file3.csv"
 	tmpFilePath := path.Join("/tmp", fileName)
 	if err := ioutil.WriteFile(tmpFilePath, []byte(partCsvFileContent3), 0644); err != nil {
-		t.Fatal(err.Error)
+		t.Fatal(err.Error())
 	}
 	if err := os.Rename(tmpFilePath, path.Join(partcsvCDRCDirIn2, fileName)); err != nil {
 		t.Fatal("Error moving file to processing directory: ", err)

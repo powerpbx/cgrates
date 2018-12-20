@@ -21,14 +21,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package v1
 
 import (
-	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/utils"
 	"net/rpc"
 	"net/rpc/jsonrpc"
 	"path"
 	"reflect"
 	"testing"
+
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/utils"
 )
 
 var (
@@ -106,7 +107,7 @@ func testTPSplPrfStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func testTPSplPrfRPCConn(t *testing.T) {
 	var err error
-	tpSplPrfRPC, err = jsonrpc.Dial("tcp", tpSplPrfCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	tpSplPrfRPC, err = jsonrpc.Dial("tcp", tpSplPrfCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +132,8 @@ func testTPSplPrfSetTPSplPrf(t *testing.T) {
 			ActivationTime: "2014-07-29T15:00:00Z",
 			ExpiryTime:     "",
 		},
-		Sorting:       "*lowest_cost",
-		SortingParams: []string{},
+		Sorting:           "*lowest_cost",
+		SortingParameters: []string{},
 		Suppliers: []*utils.TPSupplier{
 			&utils.TPSupplier{
 				ID:                 "supplier1",
@@ -142,11 +143,11 @@ func testTPSplPrfSetTPSplPrf(t *testing.T) {
 				ResourceIDs:        []string{"ResGroup1"},
 				StatIDs:            []string{"Stat1"},
 				Weight:             10,
+				Blocker:            false,
 				SupplierParameters: "SortingParam1",
 			},
 		},
-		Blocker: false,
-		Weight:  20,
+		Weight: 20,
 	}
 	var result string
 	if err := tpSplPrfRPC.Call("ApierV1.SetTPSupplierProfile",
@@ -189,6 +190,7 @@ func testTPSplPrfUpdateTPSplPrf(t *testing.T) {
 			ResourceIDs:        []string{"ResGroup1"},
 			StatIDs:            []string{"Stat1"},
 			Weight:             10,
+			Blocker:            true,
 			SupplierParameters: "SortingParam1",
 		},
 		&utils.TPSupplier{
@@ -199,6 +201,7 @@ func testTPSplPrfUpdateTPSplPrf(t *testing.T) {
 			ResourceIDs:        []string{"ResGroup1"},
 			StatIDs:            []string{"Stat1"},
 			Weight:             20,
+			Blocker:            false,
 			SupplierParameters: "SortingParam2",
 		},
 	}
@@ -222,6 +225,7 @@ func testTPSplPrfGetTPSplPrfAfterUpdate(t *testing.T) {
 			ResourceIDs:        []string{"ResGroup1"},
 			StatIDs:            []string{"Stat1"},
 			Weight:             20,
+			Blocker:            false,
 			SupplierParameters: "SortingParam2",
 		},
 		&utils.TPSupplier{
@@ -232,6 +236,7 @@ func testTPSplPrfGetTPSplPrfAfterUpdate(t *testing.T) {
 			ResourceIDs:        []string{"ResGroup1"},
 			StatIDs:            []string{"Stat1"},
 			Weight:             10,
+			Blocker:            true,
 			SupplierParameters: "SortingParam1",
 		},
 	}

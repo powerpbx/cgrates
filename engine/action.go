@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"net"
 	"net/smtp"
 	"path"
 	"reflect"
@@ -79,6 +80,10 @@ const (
 	SET_DDESTINATIONS         = "*set_ddestinations"
 	TRANSFER_MONETARY_DEFAULT = "*transfer_monetary_default"
 	CGR_RPC                   = "*cgr_rpc"
+	TopUpZeroNegative         = "*topup_zero_negative"
+	SetExpiry                 = "*set_expiry"
+	MetaPublishAccount        = "*publish_account"
+	MetaPublishBalance        = "*publish_balance"
 )
 
 func (a *Action) Clone() *Action {
@@ -87,7 +92,7 @@ func (a *Action) Clone() *Action {
 	return &clonedAction
 }
 
-type actionTypeFunc func(*Account, *CDRStatsQueueTriggered, *Action, Actions) error
+type actionTypeFunc func(*Account, *Action, Actions, interface{}) error
 
 func getActionFunc(typ string) (actionTypeFunc, bool) {
 	actionFuncMap := map[string]actionTypeFunc{
@@ -115,101 +120,51 @@ func getActionFunc(typ string) (actionTypeFunc, bool) {
 		SET_BALANCE:               setBalanceAction,
 		TRANSFER_MONETARY_DEFAULT: transferMonetaryDefaultAction,
 		CGR_RPC:                   cgrRPCAction,
+		TopUpZeroNegative:         topupZeroNegativeAction,
+		SetExpiry:                 setExpiryAction,
+		MetaPublishAccount:        publishAccount,
+		MetaPublishBalance:        publishBalance,
 	}
 	f, exists := actionFuncMap[typ]
 	return f, exists
 }
 
-func logAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
-	if ub != nil {
+func logAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
+	switch {
+	case ub != nil:
 		body, _ := json.Marshal(ub)
 		utils.Logger.Info(fmt.Sprintf("Threshold hit, Balance: %s", body))
-	}
-	if sq != nil {
-		body, _ := json.Marshal(sq)
-		utils.Logger.Info(fmt.Sprintf("Threshold hit, CDRStatsQueue: %s", body))
+	case extraData != nil:
+		body, _ := json.Marshal(extraData)
+		utils.Logger.Info(fmt.Sprintf("<CGRLog> extraData: %s", body))
 	}
 	return
 }
 
-// Used by cdrLogAction to dynamically parse values out of account and action
-func parseTemplateValue(rsrFlds utils.RSRFields, acnt *Account, action *Action) string {
-	var err error
-	var dta *utils.TenantAccount
-	if acnt != nil {
-		dta, err = utils.NewTAFromAccountKey(acnt.ID) // Account information should be valid
+func cdrLogAction(acc *Account, a *Action, acs Actions, extraData interface{}) (err error) {
+	if schedCdrsConns == nil {
+		return fmt.Errorf("No connection with CDR Server")
 	}
-	if err != nil || acnt == nil {
-		dta = new(utils.TenantAccount) // Init with empty values
-	}
-	var parsedValue string // Template values
-	b := action.Balance.CreateBalance()
-	for _, rsrFld := range rsrFlds {
-		switch rsrFld.Id {
-		case "AccountID":
-			parsedValue += rsrFld.ParseValue(acnt.ID)
-		case "Directions":
-			parsedValue += rsrFld.ParseValue(b.Directions.String())
-		case utils.Tenant:
-			parsedValue += rsrFld.ParseValue(dta.Tenant)
-		case utils.Account:
-			parsedValue += rsrFld.ParseValue(dta.Account)
-		case "ActionID":
-			parsedValue += rsrFld.ParseValue(action.Id)
-		case "ActionType":
-			parsedValue += rsrFld.ParseValue(action.ActionType)
-		case "ActionValue":
-			parsedValue += rsrFld.ParseValue(strconv.FormatFloat(b.GetValue(), 'f', -1, 64))
-		case "BalanceType":
-			parsedValue += rsrFld.ParseValue(action.Balance.GetType())
-		case "BalanceUUID":
-			parsedValue += rsrFld.ParseValue(b.Uuid)
-		case "BalanceID":
-			parsedValue += rsrFld.ParseValue(b.ID)
-		case "BalanceValue":
-			parsedValue += rsrFld.ParseValue(strconv.FormatFloat(action.balanceValue, 'f', -1, 64))
-		case "DestinationIDs":
-			parsedValue += rsrFld.ParseValue(b.DestinationIDs.String())
-		case "ExtraParameters":
-			parsedValue += rsrFld.ParseValue(action.ExtraParameters)
-		case "RatingSubject":
-			parsedValue += rsrFld.ParseValue(b.RatingSubject)
-		case utils.Category:
-			parsedValue += rsrFld.ParseValue(action.Balance.Categories.String())
-		case "SharedGroups":
-			parsedValue += rsrFld.ParseValue(action.Balance.SharedGroups.String())
-		default:
-			parsedValue += rsrFld.ParseValue("") // Mostly for static values
-		}
-	}
-	return parsedValue
-}
-
-func cdrLogAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
-	defaultTemplate := map[string]utils.RSRFields{
-		utils.TOR:         utils.ParseRSRFieldsMustCompile("BalanceType", utils.INFIELD_SEP),
-		utils.OriginHost:  utils.ParseRSRFieldsMustCompile("^127.0.0.1", utils.INFIELD_SEP),
-		utils.RequestType: utils.ParseRSRFieldsMustCompile("^"+utils.META_PREPAID, utils.INFIELD_SEP),
-		utils.Tenant:      utils.ParseRSRFieldsMustCompile(utils.Tenant, utils.INFIELD_SEP),
-		utils.Account:     utils.ParseRSRFieldsMustCompile(utils.Account, utils.INFIELD_SEP),
-		utils.Subject:     utils.ParseRSRFieldsMustCompile(utils.Account, utils.INFIELD_SEP), //here need to be modify
-		utils.COST:        utils.ParseRSRFieldsMustCompile("ActionValue", utils.INFIELD_SEP),
+	defaultTemplate := map[string]config.RSRParsers{
+		utils.ToR:         config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+"BalanceType", true, utils.INFIELD_SEP),
+		utils.OriginHost:  config.NewRSRParsersMustCompile("127.0.0.1", true, utils.INFIELD_SEP),
+		utils.RequestType: config.NewRSRParsersMustCompile(utils.META_PREPAID, true, utils.INFIELD_SEP),
+		utils.Tenant:      config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Tenant, true, utils.INFIELD_SEP),
+		utils.Account:     config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Account, true, utils.INFIELD_SEP),
+		utils.Subject:     config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Account, true, utils.INFIELD_SEP),
+		utils.COST:        config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+"ActionValue", true, utils.INFIELD_SEP),
 	}
 	template := make(map[string]string)
-
 	// overwrite default template
 	if a.ExtraParameters != "" {
 		if err = json.Unmarshal([]byte(a.ExtraParameters), &template); err != nil {
 			return
 		}
 		for field, rsr := range template {
-			defaultTemplate[field], err = utils.ParseRSRFields(rsr, utils.INFIELD_SEP)
-			if err != nil {
-				return err
-			}
+			defaultTemplate[field] = config.NewRSRParsersMustCompile(rsr,
+				true, config.CgrConfig().GeneralCfg().RsrSepatarot)
 		}
 	}
-
 	// set stored cdr values
 	var cdrs []*CDR
 	for _, action := range acs {
@@ -217,15 +172,23 @@ func cdrLogAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actio
 			action.Balance == nil {
 			continue // Only log specific actions
 		}
-		cdr := &CDR{RunID: action.ActionType, Source: CDRLOG,
-			SetupTime: time.Now(), AnswerTime: time.Now(), OriginID: utils.GenUUID(),
-			ExtraFields: make(map[string]string)}
+		cdr := &CDR{
+			RunID:     action.ActionType,
+			Source:    CDRLOG,
+			SetupTime: time.Now(), AnswerTime: time.Now(),
+			OriginID:    utils.GenUUID(),
+			ExtraFields: make(map[string]string),
+			PreRated:    true,
+		}
 		cdr.CGRID = utils.Sha1(cdr.OriginID, cdr.SetupTime.String())
 		cdr.Usage = time.Duration(1)
 		elem := reflect.ValueOf(cdr).Elem()
 		for key, rsrFlds := range defaultTemplate {
-			parsedValue := parseTemplateValue(rsrFlds, acc, action)
+			parsedValue, err := rsrFlds.ParseDataProvider(newCdrLogProvider(acc, action), utils.NestingSep)
 			field := elem.FieldByName(key)
+			if err != nil {
+				return err
+			}
 			if field.IsValid() && field.CanSet() {
 				switch field.Kind() {
 				case reflect.Float64:
@@ -242,10 +205,9 @@ func cdrLogAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actio
 			}
 		}
 		cdrs = append(cdrs, cdr)
-		if cdrStorage == nil { // Only save if the cdrStorage is defined
-			continue
-		}
-		if err := cdrStorage.SetCDR(cdr, true); err != nil {
+		var rply string
+		// After compute the CDR send it to CDR Server to be processed
+		if err := schedCdrsConns.Call(utils.CdrsV2ProcessCDR, cdr.AsCGREvent(), &rply); err != nil {
 			return err
 		}
 	}
@@ -254,7 +216,7 @@ func cdrLogAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actio
 	return
 }
 
-func resetTriggersAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func resetTriggersAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -262,7 +224,7 @@ func resetTriggersAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs
 	return
 }
 
-func setRecurrentAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func setRecurrentAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -270,7 +232,7 @@ func setRecurrentAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs 
 	return
 }
 
-func unsetRecurrentAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func unsetRecurrentAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -278,7 +240,7 @@ func unsetRecurrentAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, ac
 	return
 }
 
-func allowNegativeAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func allowNegativeAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -286,7 +248,7 @@ func allowNegativeAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs
 	return
 }
 
-func denyNegativeAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func denyNegativeAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -294,14 +256,14 @@ func denyNegativeAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs 
 	return
 }
 
-func resetAccountAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func resetAccountAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
 	return genericReset(ub)
 }
 
-func topupResetAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func topupResetAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -315,7 +277,7 @@ func topupResetAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Ac
 	return
 }
 
-func topupAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func topupAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -326,7 +288,7 @@ func topupAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions
 	return
 }
 
-func debitResetAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func debitResetAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -336,7 +298,7 @@ func debitResetAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Ac
 	return genericDebit(ub, a, true)
 }
 
-func debitAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func debitAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -344,7 +306,7 @@ func debitAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions
 	return
 }
 
-func resetCountersAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func resetCountersAction(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if ub == nil {
 		return errors.New("nil account")
 	}
@@ -367,10 +329,10 @@ func genericDebit(ub *Account, a *Action, reset bool) (err error) {
 	if ub.BalanceMap == nil {
 		ub.BalanceMap = make(map[string]Balances)
 	}
-	return ub.debitBalanceAction(a, reset)
+	return ub.debitBalanceAction(a, reset, false)
 }
 
-func enableAccountAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func enableAccountAction(acc *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if acc == nil {
 		return errors.New("nil account")
 	}
@@ -378,7 +340,7 @@ func enableAccountAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, ac
 	return
 }
 
-func disableAccountAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func disableAccountAction(acc *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	if acc == nil {
 		return errors.New("nil account")
 	}
@@ -395,7 +357,7 @@ func disableAccountAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, a
 }*/
 
 func genericReset(ub *Account) error {
-	for k, _ := range ub.BalanceMap {
+	for k := range ub.BalanceMap {
 		ub.BalanceMap[k] = Balances{&Balance{Value: 0}}
 	}
 	ub.InitCounters()
@@ -403,53 +365,63 @@ func genericReset(ub *Account) error {
 	return nil
 }
 
-func callUrl(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
+func callUrl(ub *Account, a *Action, acs Actions, extraData interface{}) error {
 	var o interface{}
-	if ub != nil {
+	switch {
+	case ub != nil:
 		o = ub
-	}
-	if sq != nil {
-		o = sq
+	case extraData != nil:
+		o = extraData
 	}
 	jsn, err := json.Marshal(o)
 	if err != nil {
 		return err
 	}
 	cfg := config.CgrConfig()
-	ffn := &utils.FallbackFileName{Module: fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
-		Transport: utils.MetaHTTPjson, Address: a.ExtraParameters,
-		RequestID: utils.GenUUID(), FileSuffix: utils.JSNSuffix}
-	_, err = utils.NewHTTPPoster(config.CgrConfig().HttpSkipTlsVerify,
-		config.CgrConfig().ReplyTimeout).Post(a.ExtraParameters, utils.CONTENT_JSON, jsn,
-		config.CgrConfig().PosterAttempts, path.Join(cfg.FailedPostsDir, ffn.AsString()))
+	ffn := &utils.FallbackFileName{
+		Module:     fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
+		Transport:  utils.MetaHTTPjson,
+		Address:    a.ExtraParameters,
+		RequestID:  utils.GenUUID(),
+		FileSuffix: utils.JSNSuffix,
+	}
+	_, err = NewHTTPPoster(config.CgrConfig().GeneralCfg().HttpSkipTlsVerify,
+		config.CgrConfig().GeneralCfg().ReplyTimeout).Post(a.ExtraParameters,
+		utils.CONTENT_JSON, jsn, config.CgrConfig().GeneralCfg().PosterAttempts,
+		path.Join(cfg.GeneralCfg().FailedPostsDir, ffn.AsString()))
 	return err
 }
 
 // Does not block for posts, no error reports
-func callUrlAsync(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
+func callUrlAsync(ub *Account, a *Action, acs Actions, extraData interface{}) error {
 	var o interface{}
-	if ub != nil {
+	switch {
+	case ub != nil:
 		o = ub
-	}
-	if sq != nil {
-		o = sq
+	case extraData != nil:
+		o = extraData
 	}
 	jsn, err := json.Marshal(o)
 	if err != nil {
 		return err
 	}
 	cfg := config.CgrConfig()
-	ffn := &utils.FallbackFileName{Module: fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
-		Transport: utils.MetaHTTPjson, Address: a.ExtraParameters,
-		RequestID: utils.GenUUID(), FileSuffix: utils.JSNSuffix}
-	go utils.NewHTTPPoster(config.CgrConfig().HttpSkipTlsVerify,
-		config.CgrConfig().ReplyTimeout).Post(a.ExtraParameters, utils.CONTENT_JSON, jsn,
-		config.CgrConfig().PosterAttempts, path.Join(cfg.FailedPostsDir, ffn.AsString()))
+	ffn := &utils.FallbackFileName{
+		Module:     fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
+		Transport:  utils.MetaHTTPjson,
+		Address:    a.ExtraParameters,
+		RequestID:  utils.GenUUID(),
+		FileSuffix: utils.JSNSuffix,
+	}
+	go NewHTTPPoster(config.CgrConfig().GeneralCfg().HttpSkipTlsVerify,
+		config.CgrConfig().GeneralCfg().ReplyTimeout).Post(a.ExtraParameters,
+		utils.CONTENT_JSON, jsn, config.CgrConfig().GeneralCfg().PosterAttempts,
+		path.Join(cfg.GeneralCfg().FailedPostsDir, ffn.AsString()))
 	return nil
 }
 
 // Mails the balance hitting the threshold towards predefined list of addresses
-func mailAsync(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
+func mailAsync(ub *Account, a *Action, acs Actions, extraData interface{}) error {
 	cgrCfg := config.CgrConfig()
 	params := strings.Split(a.ExtraParameters, string(utils.CSV_SEP))
 	if len(params) == 0 {
@@ -470,20 +442,15 @@ func mailAsync(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) 
 			return err
 		}
 		message = []byte(fmt.Sprintf("To: %s\r\nSubject: [CGR Notification] Threshold hit on Balance: %s\r\n\r\nTime: \r\n\t%s\r\n\r\nBalance:\r\n\t%s\r\n\r\nYours faithfully,\r\nCGR Balance Monitor\r\n", toAddrStr, ub.ID, time.Now(), balJsn))
-	} else if sq != nil {
-		message = []byte(fmt.Sprintf("To: %s\r\nSubject: [CGR Notification] Threshold hit on CDRStatsQueueId: %s\r\n\r\nTime: \r\n\t%s\r\n\r\nCDRStatsQueueId:\r\n\t%s\r\n\r\nMetrics:\r\n\t%+v\r\n\r\nTrigger:\r\n\t%+v\r\n\r\nYours faithfully,\r\nCGR CDR Stats Monitor\r\n",
-			toAddrStr, sq.Id, time.Now(), sq.Id, sq.Metrics, sq.Trigger))
 	}
-	auth := smtp.PlainAuth("", cgrCfg.MailerAuthUser, cgrCfg.MailerAuthPass, strings.Split(cgrCfg.MailerServer, ":")[0]) // We only need host part, so ignore port
+	auth := smtp.PlainAuth("", cgrCfg.MailerCfg().MailerAuthUser, cgrCfg.MailerCfg().MailerAuthPass, strings.Split(cgrCfg.MailerCfg().MailerServer, ":")[0]) // We only need host part, so ignore port
 	go func() {
 		for i := 0; i < 5; i++ { // Loop so we can increase the success rate on best effort
-			if err := smtp.SendMail(cgrCfg.MailerServer, auth, cgrCfg.MailerFromAddr, toAddrs, message); err == nil {
+			if err := smtp.SendMail(cgrCfg.MailerCfg().MailerServer, auth, cgrCfg.MailerCfg().MailerFromAddr, toAddrs, message); err == nil {
 				break
 			} else if i == 4 {
 				if ub != nil {
 					utils.Logger.Warning(fmt.Sprintf("<Triggers> WARNING: Failed emailing, params: [%s], error: [%s], BalanceId: %s", a.ExtraParameters, err.Error(), ub.ID))
-				} else if sq != nil {
-					utils.Logger.Warning(fmt.Sprintf("<Triggers> WARNING: Failed emailing, params: [%s], error: [%s], CDRStatsQueueTriggeredId: %s", a.ExtraParameters, err.Error(), sq.Id))
 				}
 				break
 			}
@@ -493,7 +460,7 @@ func mailAsync(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) 
 	return nil
 }
 
-func setddestinations(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
+func setddestinations(ub *Account, a *Action, acs Actions, extraData interface{}) (err error) {
 	var ddcDestId string
 	for _, bchain := range ub.BalanceMap {
 		for _, b := range bchain {
@@ -513,13 +480,14 @@ func setddestinations(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Ac
 	}
 	if ddcDestId != "" {
 		// make slice from prefixes
-		prefixes := make([]string, len(sq.Metrics))
-		i := 0
-		for p := range sq.Metrics {
-			prefixes[i] = p
-			i++
-		}
-		newDest := &Destination{Id: ddcDestId, Prefixes: prefixes}
+		// Review here prefixes
+		// prefixes := make([]string, len(sq.Metrics))
+		// i := 0
+		// for p := range sq.Metrics {
+		// 	prefixes[i] = p
+		// 	i++
+		// }
+		newDest := &Destination{Id: ddcDestId}
 		oldDest, err := dm.DataDB().GetDestination(ddcDestId, false, utils.NonTransactional)
 		if err != nil {
 			return err
@@ -543,8 +511,7 @@ func setddestinations(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Ac
 	return nil
 }
 
-func removeAccountAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
-
+func removeAccountAction(ub *Account, a *Action, acs Actions, extraData interface{}) error {
 	var accID string
 	if ub != nil {
 		accID = ub.ID
@@ -605,7 +572,7 @@ func removeAccountAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs
 	return nil
 }
 
-func removeBalanceAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
+func removeBalanceAction(ub *Account, a *Action, acs Actions, extraData interface{}) error {
 	if ub == nil {
 		return fmt.Errorf("nil account for %s action", utils.ToJSON(a))
 	}
@@ -615,7 +582,7 @@ func removeBalanceAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs
 	bChain := ub.BalanceMap[a.Balance.GetType()]
 	found := false
 	for i := 0; i < len(bChain); i++ {
-		if bChain[i].MatchFilter(a.Balance, false) {
+		if bChain[i].MatchFilter(a.Balance, false, false) {
 			// delete without preserving order
 			bChain[i] = bChain[len(bChain)-1]
 			bChain = bChain[:len(bChain)-1]
@@ -630,27 +597,27 @@ func removeBalanceAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs
 	return nil
 }
 
-func setBalanceAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
-	if acc == nil {
+func setBalanceAction(ub *Account, a *Action, acs Actions, extraData interface{}) error {
+	if ub == nil {
 		return fmt.Errorf("nil account for %s action", utils.ToJSON(a))
 	}
-	return acc.setBalanceAction(a)
+	return ub.setBalanceAction(a)
 }
 
-func transferMonetaryDefaultAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
-	if acc == nil {
+func transferMonetaryDefaultAction(ub *Account, a *Action, acs Actions, extraData interface{}) error {
+	if ub == nil {
 		utils.Logger.Err("*transfer_monetary_default called without account")
 		return utils.ErrAccountNotFound
 	}
-	if _, exists := acc.BalanceMap[utils.MONETARY]; !exists {
+	if _, exists := ub.BalanceMap[utils.MONETARY]; !exists {
 		return utils.ErrNotFound
 	}
-	defaultBalance := acc.GetDefaultMoneyBalance()
-	bChain := acc.BalanceMap[utils.MONETARY]
+	defaultBalance := ub.GetDefaultMoneyBalance()
+	bChain := ub.BalanceMap[utils.MONETARY]
 	for _, balance := range bChain {
 		if balance.Uuid != defaultBalance.Uuid &&
 			balance.ID != defaultBalance.ID && // extra caution
-			balance.MatchFilter(a.Balance, false) {
+			balance.MatchFilter(a.Balance, false, false) {
 			if balance.Value > 0 {
 				defaultBalance.Value += balance.Value
 				balance.Value = 0
@@ -684,7 +651,7 @@ Sq - CDRStatsQueueTriggered object
 
 We can actually use everythiong that go templates offer. You can read more here: https://golang.org/pkg/text/template/
 */
-func cgrRPCAction(account *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) error {
+func cgrRPCAction(ub *Account, a *Action, acs Actions, extraData interface{}) error {
 	// parse template
 	tmpl := template.New("extra_params")
 	tmpl.Delims("<<", ">>")
@@ -695,11 +662,11 @@ func cgrRPCAction(account *Account, sq *CDRStatsQueueTriggered, a *Action, acs A
 	}
 	var buf bytes.Buffer
 	if err = t.Execute(&buf, struct {
-		Account *Account
-		Sq      *CDRStatsQueueTriggered
-		Action  *Action
-		Actions Actions
-	}{account, sq, a, acs}); err != nil {
+		Account   *Account
+		Action    *Action
+		Actions   Actions
+		ExtraData interface{}
+	}{ub, a, acs, extraData}); err != nil {
 		utils.Logger.Err(fmt.Sprintf("error executing *cgr_rpc template %s:", err.Error()))
 		return err
 	}
@@ -715,8 +682,10 @@ func cgrRPCAction(account *Account, sq *CDRStatsQueueTriggered, a *Action, acs A
 	}
 	var client rpcclient.RpcClientConnection
 	if req.Address != utils.MetaInternal {
-		if client, err = rpcclient.NewRpcClient("tcp", req.Address, req.Attempts, 0,
-			config.CgrConfig().ConnectTimeout, config.CgrConfig().ReplyTimeout, req.Transport, nil, false); err != nil {
+		if client, err = rpcclient.NewRpcClient("tcp", req.Address, false, "", "", "",
+			req.Attempts, 0, config.CgrConfig().GeneralCfg().ConnectTimeout,
+			config.CgrConfig().GeneralCfg().ReplyTimeout, req.Transport,
+			nil, false); err != nil {
 			return err
 		}
 	} else {
@@ -744,6 +713,62 @@ func cgrRPCAction(account *Account, sq *CDRStatsQueueTriggered, a *Action, acs A
 		err := client.Call(req.Method, in, out)
 		utils.Logger.Info(fmt.Sprintf("<*cgr_rpc> result: %s err: %v", utils.ToJSON(out), err))
 	}()
+	return nil
+}
+
+func topupZeroNegativeAction(ub *Account, a *Action, acs Actions, extraData interface{}) error {
+	if ub == nil {
+		return errors.New("nil account")
+	}
+	if ub.BalanceMap == nil {
+		ub.BalanceMap = make(map[string]Balances)
+	}
+	return ub.debitBalanceAction(a, false, true)
+}
+
+func setExpiryAction(ub *Account, a *Action, acs Actions, extraData interface{}) error {
+	if ub == nil {
+		return errors.New("nil account")
+	}
+	balanceType := a.Balance.GetType()
+	for _, b := range ub.BalanceMap[balanceType] {
+		if b.MatchFilter(a.Balance, false, true) {
+			b.ExpirationDate = a.Balance.GetExpirationDate()
+		}
+	}
+	return nil
+}
+
+// publishAccount will publish the account as well as each balance received to ThresholdS
+func publishAccount(ub *Account, a *Action, acs Actions, extraData interface{}) error {
+	if ub == nil {
+		return errors.New("nil account")
+	}
+	ub.Publish()
+	for bType := range ub.BalanceMap {
+		for _, b := range ub.BalanceMap[bType] {
+			if b.account == nil {
+				b.account = ub
+			}
+			b.Publish()
+		}
+	}
+	return nil
+}
+
+// publishAccount will publish the account as well as each balance received to ThresholdS
+func publishBalance(ub *Account, a *Action, acs Actions, extraData interface{}) error {
+	if ub == nil {
+		return errors.New("nil account")
+	}
+	for bType := range ub.BalanceMap {
+		for _, b := range ub.BalanceMap[bType] {
+			if b.account == nil {
+				b.account = ub
+			}
+			b.Publish()
+		}
+	}
 	return nil
 }
 
@@ -783,4 +808,103 @@ func (apl Actions) Clone() (interface{}, error) {
 		}
 	}
 	return cln, nil
+}
+
+// newCdrLogProvider constructs a DataProvider
+func newCdrLogProvider(acnt *Account, action *Action) (dP config.DataProvider) {
+	dP = &cdrLogProvider{acnt: acnt, action: action, cache: config.NewNavigableMap(nil)}
+	return
+}
+
+// cdrLogProvider implements engine.DataProvider so we can pass it to filters
+type cdrLogProvider struct {
+	acnt   *Account
+	action *Action
+	cache  *config.NavigableMap
+}
+
+// String is part of engine.DataProvider interface
+// when called, it will display the already parsed values out of cache
+func (cdrP *cdrLogProvider) String() string {
+	return utils.ToJSON(cdrP)
+}
+
+// FieldAsInterface is part of engine.DataProvider interface
+func (cdrP *cdrLogProvider) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+	if len(fldPath) != 1 {
+		return nil, utils.ErrNotFound
+	}
+	if data, err = cdrP.cache.FieldAsInterface(fldPath); err == nil ||
+		err != utils.ErrNotFound { // item found in cache
+		return
+	}
+	err = nil // cancel previous err
+	var dta *utils.TenantAccount
+	if cdrP.acnt != nil {
+		dta, err = utils.NewTAFromAccountKey(cdrP.acnt.ID) // Account information should be valid
+	}
+	if err != nil || cdrP.acnt == nil {
+		dta = new(utils.TenantAccount) // Init with empty values
+	}
+	b := cdrP.action.Balance.CreateBalance()
+	switch fldPath[0] {
+	case "AccountID":
+		data = cdrP.acnt.ID
+	case "Directions":
+		data = b.Directions.String()
+	case utils.Tenant:
+		data = dta.Tenant
+	case utils.Account:
+		data = dta.Account
+	case "ActionID":
+		data = cdrP.action.Id
+	case "ActionType":
+		data = cdrP.action.ActionType
+	case "ActionValue":
+		data = strconv.FormatFloat(b.GetValue(), 'f', -1, 64)
+	case "BalanceType":
+		data = cdrP.action.Balance.GetType()
+	case "BalanceUUID":
+		data = b.Uuid
+	case "BalanceID":
+		data = b.ID
+	case "BalanceValue":
+		data = strconv.FormatFloat(cdrP.action.balanceValue, 'f', -1, 64)
+	case "DestinationIDs":
+		data = b.DestinationIDs.String()
+	case "ExtraParameters":
+		data = cdrP.action.ExtraParameters
+	case "RatingSubject":
+		data = b.RatingSubject
+	case utils.Category:
+		data = cdrP.action.Balance.Categories.String()
+	case "SharedGroups":
+		data = cdrP.action.Balance.SharedGroups.String()
+	default:
+		data = fldPath[0]
+	}
+	cdrP.cache.Set(fldPath, data, false, false)
+	return
+}
+
+// FieldAsString is part of engine.DataProvider interface
+func (cdrP *cdrLogProvider) FieldAsString(fldPath []string) (data string, err error) {
+	var valIface interface{}
+	valIface, err = cdrP.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	data, err = utils.IfaceAsString(valIface)
+	return
+}
+
+// AsNavigableMap is part of engine.DataProvider interface
+func (cdrP *cdrLogProvider) AsNavigableMap([]*config.FCTemplate) (
+	nm *config.NavigableMap, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
+// RemoteHost is part of engine.DataProvider interface
+func (cdrP *cdrLogProvider) RemoteHost() net.Addr {
+	return utils.LocalAddr()
 }

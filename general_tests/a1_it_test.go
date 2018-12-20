@@ -33,7 +33,6 @@ import (
 	"github.com/cgrates/cgrates/apier/v2"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/sessionmanager"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -69,9 +68,8 @@ func TestA1itStartEngine(t *testing.T) {
 }
 
 func TestA1itRPCConn(t *testing.T) {
-	time.Sleep(1500 * time.Millisecond) // flushdb takes time in mongo
 	var err error
-	a1rpc, err = jsonrpc.Dial("tcp", a1Cfg.RPCJSONListen)
+	a1rpc, err = jsonrpc.Dial("tcp", a1Cfg.ListenCfg().RPCJSONListen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,9 +125,9 @@ func TestA1itAddBalance1(t *testing.T) {
 }
 
 func TestA1itDataSession1(t *testing.T) {
-	smgEv := sessionmanager.SMGenericEvent{
+	smgEv := map[string]interface{}{
 		utils.EVENT_NAME:         "INITIATE_SESSION",
-		utils.TOR:                utils.DATA,
+		utils.ToR:                utils.DATA,
 		utils.OriginID:           "504966119",
 		utils.Direction:          utils.OUT,
 		utils.Account:            "rpdata1",
@@ -151,7 +149,7 @@ func TestA1itDataSession1(t *testing.T) {
 	} else if maxUsage != 10240 {
 		t.Error("Received: ", maxUsage)
 	}
-	smgEv = sessionmanager.SMGenericEvent{
+	smgEv = map[string]interface{}{
 		utils.EVENT_NAME:         "UPDATE_SESSION",
 		utils.Account:            "rpdata1",
 		utils.Category:           "data1",
@@ -166,7 +164,7 @@ func TestA1itDataSession1(t *testing.T) {
 		utils.SessionTTLUsage:    "0s",
 		utils.Subject:            "rpdata1",
 		utils.Tenant:             "cgrates.org",
-		utils.TOR:                utils.DATA,
+		utils.ToR:                utils.DATA,
 		utils.SetupTime:          "2017-03-03 11:39:32 +0100 CET",
 		utils.AnswerTime:         "2017-03-03 11:39:32 +0100 CET",
 		utils.Usage:              "2097152",
@@ -177,7 +175,7 @@ func TestA1itDataSession1(t *testing.T) {
 	} else if maxUsage != 2097152 {
 		t.Error("Bad max usage: ", maxUsage)
 	}
-	smgEv = sessionmanager.SMGenericEvent{
+	smgEv = map[string]interface{}{
 		utils.EVENT_NAME:     "TERMINATE_SESSION",
 		utils.Account:        "rpdata1",
 		utils.Category:       "data1",
@@ -191,7 +189,7 @@ func TestA1itDataSession1(t *testing.T) {
 		utils.AnswerTime:     "2017-03-03 11:39:32 +0100 CET",
 		utils.Subject:        "rpdata1",
 		utils.Tenant:         "cgrates.org",
-		utils.TOR:            utils.DATA,
+		utils.ToR:            utils.DATA,
 	}
 	var rpl string
 	if err = a1rpc.Call("SMGenericV1.TerminateSession", smgEv, &rpl); err != nil || rpl != utils.OK {
@@ -214,11 +212,13 @@ func TestA1itDataSession1(t *testing.T) {
 			t.Errorf("Unexpected CDR Usage received, cdr: %+v ", cdrs[0])
 		}
 		var cc engine.CallCost
-		if err := json.Unmarshal([]byte(cdrs[0].CostDetails), &cc); err != nil {
+		var ec engine.EventCost
+		if err := json.Unmarshal([]byte(cdrs[0].CostDetails), &ec); err != nil {
 			t.Error(err)
 		}
-		if len(cc.Timespans) != 3 {
-			t.Errorf("Unexpected number of timespans: %+v", len(cc.Timespans))
+		cc = *ec.AsCallCost()
+		if len(cc.Timespans) != 1 {
+			t.Errorf("Unexpected number of timespans: %+v, for %+v\n from:%+v", len(cc.Timespans), utils.ToJSON(cc.Timespans), utils.ToJSON(ec))
 		}
 		if cc.RatedUsage != 2202800 {
 			t.Errorf("RatingUsage expected: %f received %f, callcost: %+v ", 2202800.0, cc.RatedUsage, cc)

@@ -218,17 +218,6 @@ func (self *TPExporter) Run() error {
 		}
 	}
 
-	storDataCdrStats, err := self.storDb.GetTPCdrStats(self.tpID, "")
-	if err != nil && err.Error() != utils.ErrNotFound.Error() {
-		return err
-	}
-	for _, sd := range storDataCdrStats {
-		sdModels := APItoModelCdrStat(sd)
-		for _, sdModel := range sdModels {
-			toExportMap[utils.CDR_STATS_CSV] = append(toExportMap[utils.CDR_STATS_CSV], sdModel)
-		}
-	}
-
 	storDataResources, err := self.storDb.GetTPResources(self.tpID, "")
 	if err != nil && err.Error() != utils.ErrNotFound.Error() {
 		return err
@@ -292,6 +281,17 @@ func (self *TPExporter) Run() error {
 		sdModels := APItoModelTPAttribute(sd)
 		for _, sdModel := range sdModels {
 			toExportMap[utils.AttributesCsv] = append(toExportMap[utils.AttributesCsv], sdModel)
+		}
+	}
+
+	storDataChargers, err := self.storDb.GetTPChargers(self.tpID, "")
+	if err != nil && err.Error() != utils.ErrNotFound.Error() {
+		return err
+	}
+	for _, sd := range storDataChargers {
+		sdModels := APItoModelTPCharger(sd)
+		for _, sdModel := range sdModels {
+			toExportMap[utils.ChargersCsv] = append(toExportMap[utils.ChargersCsv], sdModel)
 		}
 	}
 

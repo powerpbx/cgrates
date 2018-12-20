@@ -30,8 +30,12 @@ import (
 )
 
 const (
+	MetaNot            = "*not"
 	MetaString         = "*string"
 	MetaPrefix         = "*prefix"
+	MetaSuffix         = "*suffix"
+	MetaEmpty          = "*empty"
+	MetaExists         = "*exists"
 	MetaTimings        = "*timings"
 	MetaRSR            = "*rsr"
 	MetaStatS          = "*stats"
@@ -44,8 +48,13 @@ const (
 	MetaGreaterOrEqual = "*gte"
 )
 
-func NewFilterS(cfg *config.CGRConfig, statSChan chan rpcclient.RpcClientConnection, dm *DataManager) *FilterS {
-	return &FilterS{statSChan: statSChan, dm: dm}
+func NewFilterS(cfg *config.CGRConfig,
+	statSChan chan rpcclient.RpcClientConnection, dm *DataManager) *FilterS {
+	return &FilterS{
+		statSChan: statSChan,
+		dm:        dm,
+		cfg:       cfg,
+	}
 }
 
 // FilterS is a service used to take decisions in case of filters
@@ -53,7 +62,7 @@ func NewFilterS(cfg *config.CGRConfig, statSChan chan rpcclient.RpcClientConnect
 type FilterS struct {
 	cfg        *config.CGRConfig
 	statSChan  chan rpcclient.RpcClientConnection // reference towards internal statS connection, used for lazy connect
-	statSConns *rpcclient.RpcClientPool
+	statSConns rpcclient.RpcClientConnection
 	sSConnMux  sync.RWMutex // make sure only one goroutine attempts connecting
 	dm         *DataManager
 }
@@ -65,98 +74,71 @@ func (fS *FilterS) connStatS() (err error) {
 	if fS.statSConns != nil { // connection was populated between locks
 		return
 	}
-	fS.statSConns, err = NewRPCPool(rpcclient.POOL_FIRST, fS.cfg.ConnectAttempts, fS.cfg.Reconnects, fS.cfg.ConnectTimeout, fS.cfg.ReplyTimeout,
-		fS.cfg.FilterSCfg().StatSConns, fS.statSChan, fS.cfg.InternalTtl)
+	fS.statSConns, err = NewRPCPool(rpcclient.POOL_FIRST,
+		fS.cfg.TlsCfg().ClientKey, fS.cfg.TlsCfg().ClientCerificate,
+		fS.cfg.TlsCfg().CaCertificate, fS.cfg.GeneralCfg().ConnectAttempts,
+		fS.cfg.GeneralCfg().Reconnects, fS.cfg.GeneralCfg().ConnectTimeout,
+		fS.cfg.GeneralCfg().ReplyTimeout, fS.cfg.FilterSCfg().StatSConns,
+		fS.statSChan, fS.cfg.GeneralCfg().InternalTtl)
 	return
 }
 
-func NewInlineFilter(content string) (f *InlineFilter, err error) {
-	if len(strings.Split(content, utils.InInFieldSep)) != 3 {
-		return nil, fmt.Errorf("parse error for string: <%s>")
-	}
-	contentSplit := strings.Split(content, utils.InInFieldSep)
-	return &InlineFilter{Type: contentSplit[0], FieldName: contentSplit[1], FieldVal: contentSplit[2]}, nil
-}
-
-type InlineFilter struct {
-	Type      string
-	FieldName string
-	FieldVal  string
-}
-
-//AsFilter convert InlineFilter to Filter
-func (inFtr *InlineFilter) AsFilter(tenant string) (f *Filter, err error) {
-	f = &Filter{
-		Tenant:         tenant,
-		ID:             utils.MetaInline,
-		RequestFilters: make([]*RequestFilter, 1),
-	}
-	rf := &RequestFilter{Type: inFtr.Type, FieldName: inFtr.FieldName, Values: []string{inFtr.FieldVal}}
-	if err := rf.CompileValues(); err != nil {
-		return nil, err
-	}
-	f.RequestFilters[0] = rf
-
-	return
-}
-
-// PassFiltersForEvent will check all filters wihin filterIDs and require them passing for event
+// Pass will check all filters wihin filterIDs and require them passing for dataProvider
 // there should be at least one filter passing, ie: if filters are not active event will fail to pass
-func (fS *FilterS) PassFiltersForEvent(tenant string, ev map[string]interface{}, filterIDs []string) (pass bool, err error) {
-	var atLeastOneFilterPassing bool
+// receives the event as DataProvider so we can accept undecoded data (ie: HttpRequest)
+func (fS *FilterS) Pass(tenant string, filterIDs []string,
+	ev config.DataProvider) (pass bool, err error) {
+	if len(filterIDs) == 0 {
+		return true, nil
+	}
 	for _, fltrID := range filterIDs {
-		var f *Filter
-		if strings.HasPrefix(fltrID, utils.MetaPrefix) {
-			inFtr, err := NewInlineFilter(fltrID)
-			if err != nil {
-				return false, err
+		f, err := fS.dm.GetFilter(tenant, fltrID,
+			true, true, utils.NonTransactional)
+		if err != nil {
+			if err == utils.ErrNotFound {
+				err = utils.ErrPrefixNotFound(fltrID)
 			}
-			f, err = inFtr.AsFilter(tenant)
-		} else {
-			f, err = fS.dm.GetFilter(tenant, fltrID, false, utils.NonTransactional)
-			if err != nil {
-				return false, err
-			}
+			return false, err
 		}
 		if f.ActivationInterval != nil &&
 			!f.ActivationInterval.IsActiveAtTime(time.Now()) { // not active
 			continue
 		}
-		for _, fltr := range f.RequestFilters {
-			switch fltr.Type {
-			case MetaString:
-				pass, err = fltr.passString(ev, "")
-			case MetaPrefix:
-				pass, err = fltr.passStringPrefix(ev, "")
-			case MetaTimings:
-				pass, err = fltr.passTimings(ev, "")
-			case MetaDestinations:
-				pass, err = fltr.passDestinations(ev, "")
-			case MetaRSR:
-				pass, err = fltr.passRSR(ev, "")
-			case MetaStatS:
-				if err = fS.connStatS(); err != nil {
-					return false, err
-				}
-				pass, err = fltr.passStatS(ev, "", fS.statSConns)
-			case MetaLessThan, MetaLessOrEqual, MetaGreaterThan, MetaGreaterOrEqual:
-				pass, err = fltr.passGreaterThan(ev, "")
-			default:
-				return false, fmt.Errorf("tenant: %s filter: %s unsupported filter type: <%s>", tenant, fltrID, fltr.Type)
-			}
-			if !pass || err != nil {
+		for _, fltr := range f.Rules {
+			if pass, err = fltr.Pass(ev, fS.statSConns); err != nil || !pass {
 				return pass, err
 			}
 		}
-		atLeastOneFilterPassing = true
+		pass = true
 	}
-	return atLeastOneFilterPassing, nil
+	return
+}
+
+// NewFilterFromInline parses an inline rule into a compiled Filter
+func NewFilterFromInline(tenant, inlnRule string) (f *Filter, err error) {
+	ruleSplt := strings.Split(inlnRule, utils.InInFieldSep)
+	if len(ruleSplt) != 3 {
+		return nil, fmt.Errorf("inline parse error for string: <%s>", inlnRule)
+	}
+	f = &Filter{
+		Tenant: tenant,
+		ID:     inlnRule,
+		Rules: []*FilterRule{{
+			Type:      ruleSplt[0],
+			FieldName: ruleSplt[1],
+			Values:    strings.Split(ruleSplt[2], utils.INFIELD_SEP),
+		}},
+	}
+	if err = f.Compile(); err != nil {
+		return nil, err
+	}
+	return
 }
 
 type Filter struct {
 	Tenant             string
 	ID                 string
-	RequestFilters     []*RequestFilter
+	Rules              []*FilterRule
 	ActivationInterval *utils.ActivationInterval
 }
 
@@ -166,7 +148,7 @@ func (flt *Filter) TenantID() string {
 
 // Compile will compile the underlaying request filters where necessary (ie. regexp rules)
 func (f *Filter) Compile() (err error) {
-	for _, rf := range f.RequestFilters {
+	for _, rf := range f.Rules {
 		if err = rf.CompileValues(); err != nil {
 			return
 		}
@@ -174,20 +156,33 @@ func (f *Filter) Compile() (err error) {
 	return
 }
 
-func NewRequestFilter(rfType, fieldName string, vals []string) (*RequestFilter, error) {
-	if !utils.IsSliceMember([]string{MetaString, MetaPrefix, MetaTimings, MetaRSR, MetaStatS, MetaDestinations,
+func NewFilterRule(rfType, fieldName string, vals []string) (*FilterRule, error) {
+	var negative bool
+	if strings.HasPrefix(rfType, MetaNot) {
+		rfType = "*" + strings.TrimPrefix(rfType, MetaNot)
+		negative = true
+	}
+	if !utils.IsSliceMember([]string{MetaString, MetaPrefix, MetaSuffix,
+		MetaTimings, MetaRSR, MetaStatS, MetaDestinations, MetaEmpty, MetaExists,
 		MetaLessThan, MetaLessOrEqual, MetaGreaterThan, MetaGreaterOrEqual}, rfType) {
 		return nil, fmt.Errorf("Unsupported filter Type: %s", rfType)
 	}
-	if fieldName == "" && utils.IsSliceMember([]string{MetaString, MetaPrefix, MetaTimings, MetaDestinations,
-		MetaLessThan, MetaLessOrEqual, MetaGreaterThan, MetaGreaterOrEqual}, rfType) {
+	if fieldName == "" && utils.IsSliceMember([]string{MetaString, MetaPrefix, MetaSuffix,
+		MetaTimings, MetaDestinations, MetaLessThan, MetaEmpty, MetaExists,
+		MetaLessOrEqual, MetaGreaterThan, MetaGreaterOrEqual}, rfType) {
 		return nil, fmt.Errorf("FieldName is mandatory for Type: %s", rfType)
 	}
-	if len(vals) == 0 && utils.IsSliceMember([]string{MetaString, MetaPrefix, MetaTimings, MetaRSR,
-		MetaDestinations, MetaDestinations, MetaLessThan, MetaLessOrEqual, MetaGreaterThan, MetaGreaterOrEqual}, rfType) {
+	if len(vals) == 0 && utils.IsSliceMember([]string{MetaString, MetaPrefix, MetaSuffix,
+		MetaTimings, MetaRSR, MetaDestinations, MetaDestinations, MetaLessThan,
+		MetaLessOrEqual, MetaGreaterThan, MetaGreaterOrEqual}, rfType) {
 		return nil, fmt.Errorf("Values is mandatory for Type: %s", rfType)
 	}
-	rf := &RequestFilter{Type: rfType, FieldName: fieldName, Values: vals}
+	rf := &FilterRule{
+		Type:      rfType,
+		FieldName: fieldName,
+		Values:    vals,
+		negative:  negative,
+	}
 	if err := rf.CompileValues(); err != nil {
 		return nil, err
 	}
@@ -200,20 +195,25 @@ type RFStatSThreshold struct {
 	ThresholdValue float64
 }
 
-// RequestFilter filters requests coming into various places
+// FilterRule filters requests coming into various places
 // Pass rule: default negative, one mathing rule should pass the filter
-type RequestFilter struct {
-	Type            string              // Filter type (*string, *timing, *rsr_filters, *stats, *lt, *lte, *gt, *gte)
-	FieldName       string              // Name of the field providing us the Values to check (used in case of some )
-	Values          []string            // Filter definition
-	rsrFields       utils.RSRFields     // Cache here the RSRFilter Values
+type FilterRule struct {
+	Type            string            // Filter type (*string, *timing, *rsr_filters, *stats, *lt, *lte, *gt, *gte)
+	FieldName       string            // Name of the field providing us the Values to check (used in case of some )
+	Values          []string          // Filter definition
+	rsrFields       config.RSRParsers // Cache here the RSRFilter Values
+	negative        bool
 	statSThresholds []*RFStatSThreshold // Cached compiled RFStatsThreshold out of Values
 }
 
 // Separate method to compile RSR fields
-func (rf *RequestFilter) CompileValues() (err error) {
+func (rf *FilterRule) CompileValues() (err error) {
+	if !rf.negative && strings.HasPrefix(rf.Type, MetaNot) {
+		rf.Type = "*" + strings.TrimPrefix(rf.Type, MetaNot)
+		rf.negative = true
+	}
 	if rf.Type == MetaRSR {
-		if rf.rsrFields, err = utils.ParseRSRFieldsFromSlice(rf.Values); err != nil {
+		if rf.rsrFields, err = config.NewRSRParsersFromSlice(rf.Values, true); err != nil {
 			return
 		}
 	} else if rf.Type == MetaStatS {
@@ -226,7 +226,8 @@ func (rf *RequestFilter) CompileValues() (err error) {
 			st := &RFStatSThreshold{QueueID: valSplt[0], ThresholdType: valSplt[1]}
 			if len(st.ThresholdType) < len(MetaMinCapPrefix)+1 {
 				return fmt.Errorf("Value %s contains a unsupported ThresholdType format", val)
-			} else if !strings.HasPrefix(st.ThresholdType, MetaMinCapPrefix) && !strings.HasPrefix(st.ThresholdType, MetaMaxCapPrefix) {
+			} else if !strings.HasPrefix(st.ThresholdType, MetaMinCapPrefix) &&
+				!strings.HasPrefix(st.ThresholdType, MetaMaxCapPrefix) {
 				return fmt.Errorf("Value %s contains unsupported ThresholdType prefix", val)
 			}
 			if tv, err := strconv.ParseFloat(valSplt[2], 64); err != nil {
@@ -241,29 +242,43 @@ func (rf *RequestFilter) CompileValues() (err error) {
 }
 
 // Pass is the method which should be used from outside.
-func (fltr *RequestFilter) Pass(req interface{}, extraFieldsLabel string, rpcClnt rpcclient.RpcClientConnection) (bool, error) {
+func (fltr *FilterRule) Pass(dP config.DataProvider, rpcClnt rpcclient.RpcClientConnection) (result bool, err error) {
+	if !fltr.negative && strings.HasPrefix(fltr.Type, MetaNot) {
+		fltr.Type = "*" + strings.TrimPrefix(fltr.Type, MetaNot)
+		fltr.negative = true
+	}
 	switch fltr.Type {
 	case MetaString:
-		return fltr.passString(req, extraFieldsLabel)
+		result, err = fltr.passString(dP)
+	case MetaEmpty:
+		result, err = fltr.passEmpty(dP)
+	case MetaExists:
+		result, err = fltr.passExists(dP)
 	case MetaPrefix:
-		return fltr.passStringPrefix(req, extraFieldsLabel)
+		result, err = fltr.passStringPrefix(dP)
+	case MetaSuffix:
+		result, err = fltr.passStringSuffix(dP)
 	case MetaTimings:
-		return fltr.passTimings(req, extraFieldsLabel)
+		result, err = fltr.passTimings(dP)
 	case MetaDestinations:
-		return fltr.passDestinations(req, extraFieldsLabel)
+		result, err = fltr.passDestinations(dP)
 	case MetaRSR:
-		return fltr.passRSR(req, extraFieldsLabel)
+		result, err = fltr.passRSR(dP)
 	case MetaStatS:
-		return fltr.passStatS(req, extraFieldsLabel, rpcClnt)
+		result, err = fltr.passStatS(dP, rpcClnt)
 	case MetaLessThan, MetaLessOrEqual, MetaGreaterThan, MetaGreaterOrEqual:
-		return fltr.passGreaterThan(req, extraFieldsLabel)
+		result, err = fltr.passGreaterThan(dP)
 	default:
-		return false, utils.ErrNotImplemented
+		err = utils.ErrPrefixNotErrNotImplemented(fltr.Type)
 	}
+	if err != nil {
+		return false, err
+	}
+	return result != fltr.negative, nil
 }
 
-func (fltr *RequestFilter) passString(req interface{}, extraFieldsLabel string) (bool, error) {
-	strVal, err := utils.ReflectFieldAsString(req, fltr.FieldName, extraFieldsLabel)
+func (fltr *FilterRule) passString(dP config.DataProvider) (bool, error) {
+	strVal, err := dP.FieldAsString(strings.Split(fltr.FieldName, utils.NestingSep))
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
@@ -278,8 +293,49 @@ func (fltr *RequestFilter) passString(req interface{}, extraFieldsLabel string) 
 	return false, nil
 }
 
-func (fltr *RequestFilter) passStringPrefix(req interface{}, extraFieldsLabel string) (bool, error) {
-	strVal, err := utils.ReflectFieldAsString(req, fltr.FieldName, extraFieldsLabel)
+func (fltr *FilterRule) passExists(dP config.DataProvider) (bool, error) {
+	_, err := dP.FieldAsInterface(strings.Split(fltr.FieldName, utils.NestingSep))
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (fltr *FilterRule) passEmpty(dP config.DataProvider) (bool, error) {
+	val, err := dP.FieldAsInterface(strings.Split(fltr.FieldName, utils.NestingSep))
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return true, nil
+		}
+		return false, err
+	}
+	if val == nil {
+		return true, nil
+	}
+	rval := reflect.ValueOf(val)
+	if rval.Type().Kind() == reflect.Ptr {
+		if rval.IsNil() {
+			return true, nil
+		}
+		rval = rval.Elem()
+	}
+	switch rval.Type().Kind() {
+	case reflect.String:
+		return rval.Interface() == "", nil
+	case reflect.Slice:
+		return rval.Len() == 0, nil
+	case reflect.Map:
+		return len(rval.MapKeys()) == 0, nil
+	default:
+		return false, nil
+	}
+}
+
+func (fltr *FilterRule) passStringPrefix(dP config.DataProvider) (bool, error) {
+	strVal, err := dP.FieldAsString(strings.Split(fltr.FieldName, utils.NestingSep))
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
@@ -294,13 +350,29 @@ func (fltr *RequestFilter) passStringPrefix(req interface{}, extraFieldsLabel st
 	return false, nil
 }
 
+func (fltr *FilterRule) passStringSuffix(dP config.DataProvider) (bool, error) {
+	strVal, err := dP.FieldAsString(strings.Split(fltr.FieldName, utils.NestingSep))
+	if err != nil {
+		if err == utils.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, prfx := range fltr.Values {
+		if strings.HasSuffix(strVal, prfx) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ToDo when Timings will be available in DataDb
-func (fltr *RequestFilter) passTimings(req interface{}, extraFieldsLabel string) (bool, error) {
+func (fltr *FilterRule) passTimings(dP config.DataProvider) (bool, error) {
 	return false, utils.ErrNotImplemented
 }
 
-func (fltr *RequestFilter) passDestinations(req interface{}, extraFieldsLabel string) (bool, error) {
-	dst, err := utils.ReflectFieldAsString(req, fltr.FieldName, extraFieldsLabel)
+func (fltr *FilterRule) passDestinations(dP config.DataProvider) (bool, error) {
+	dst, err := dP.FieldAsString(strings.Split(fltr.FieldName, utils.NestingSep))
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
@@ -321,21 +393,19 @@ func (fltr *RequestFilter) passDestinations(req interface{}, extraFieldsLabel st
 	return false, nil
 }
 
-func (fltr *RequestFilter) passRSR(req interface{}, extraFieldsLabel string) (bool, error) {
-	for _, rsrFld := range fltr.rsrFields {
-		if strVal, err := utils.ReflectFieldAsString(req, rsrFld.Id, extraFieldsLabel); err != nil {
-			if err == utils.ErrNotFound {
-				return false, nil
-			}
-			return false, err
-		} else if rsrFld.FilterPasses(strVal) {
-			return true, nil
+func (fltr *FilterRule) passRSR(dP config.DataProvider) (bool, error) {
+	_, err := fltr.rsrFields.ParseDataProviderWithInterfaces(dP, utils.NestingSep)
+	if err != nil {
+		if err == utils.ErrNotFound || err == utils.ErrFilterNotPassingNoCaps {
+			return false, nil
 		}
+		return false, err
 	}
-	return false, nil
+	return true, nil
 }
 
-func (fltr *RequestFilter) passStatS(req interface{}, extraFieldsLabel string, stats rpcclient.RpcClientConnection) (bool, error) {
+func (fltr *FilterRule) passStatS(dP config.DataProvider,
+	stats rpcclient.RpcClientConnection) (bool, error) {
 	if stats == nil || reflect.ValueOf(stats).IsNil() {
 		return false, errors.New("Missing StatS information")
 	}
@@ -344,7 +414,7 @@ func (fltr *RequestFilter) passStatS(req interface{}, extraFieldsLabel string, s
 		if err := stats.Call("StatSV1.GetFloatMetrics", threshold.QueueID, &statValues); err != nil {
 			return false, err
 		}
-		val, hasIt := statValues[utils.MetaPrefix+threshold.ThresholdType[len(MetaMinCapPrefix):]]
+		val, hasIt := statValues[utils.Meta+threshold.ThresholdType[len(MetaMinCapPrefix):]]
 		if !hasIt {
 			continue
 		}
@@ -359,8 +429,8 @@ func (fltr *RequestFilter) passStatS(req interface{}, extraFieldsLabel string, s
 	return false, nil
 }
 
-func (fltr *RequestFilter) passGreaterThan(req interface{}, extraFieldsLabel string) (bool, error) {
-	fldIf, err := utils.ReflectFieldInterface(req, fltr.FieldName, extraFieldsLabel)
+func (fltr *FilterRule) passGreaterThan(dP config.DataProvider) (bool, error) {
+	fldIf, err := dP.FieldAsInterface(strings.Split(fltr.FieldName, utils.NestingSep))
 	if err != nil {
 		if err == utils.ErrNotFound {
 			return false, nil
@@ -380,7 +450,7 @@ func (fltr *RequestFilter) passGreaterThan(req interface{}, extraFieldsLabel str
 			return false, err
 		} else if utils.IsSliceMember([]string{MetaGreaterThan, MetaGreaterOrEqual}, fltr.Type) && gte {
 			return true, nil
-		} else if !gte && utils.IsSliceMember([]string{MetaLessThan, MetaLessOrEqual}, fltr.Type) && !gte {
+		} else if utils.IsSliceMember([]string{MetaLessThan, MetaLessOrEqual}, fltr.Type) && !gte {
 			return true, nil
 		}
 	}

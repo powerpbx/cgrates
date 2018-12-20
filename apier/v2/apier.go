@@ -48,7 +48,8 @@ func (self *ApierV2) LoadRatingProfile(attrs AttrLoadRatingProfile, reply *strin
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
 	tpRpf := &utils.TPRatingProfile{TPid: attrs.TPid}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if err := dbReader.LoadRatingProfilesFiltered(tpRpf); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -66,7 +67,8 @@ func (self *ApierV2) LoadAccountActions(attrs AttrLoadAccountActions, reply *str
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	tpAa := &utils.TPAccountActions{TPid: attrs.TPid}
 	tpAa.SetAccountActionsId(attrs.AccountActionsId)
 	if _, err := guardian.Guardian.Guard(func() (interface{}, error) {
@@ -97,11 +99,13 @@ func (self *ApierV2) LoadDerivedChargers(attrs AttrLoadDerivedChargers, reply *s
 	}
 	tpDc := &utils.TPDerivedChargers{TPid: attrs.TPid}
 	tpDc.SetDerivedChargersId(attrs.DerivedChargersId)
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if err := dbReader.LoadDerivedChargersFiltered(tpDc, true); err != nil {
 		return utils.NewErrServerError(err)
 	}
-	if err := self.DataManager.CacheDataFromDB(utils.DERIVEDCHARGERS_PREFIX, []string{attrs.DerivedChargersId}, true); err != nil {
+	if err := self.DataManager.CacheDataFromDB(utils.DERIVEDCHARGERS_PREFIX,
+		[]string{attrs.DerivedChargersId}, true); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*reply = v1.OK
@@ -129,13 +133,11 @@ func (self *ApierV2) LoadTariffPlanFromFolder(attrs utils.AttrLoadTpFromFolder, 
 			path.Join(attrs.FolderPath, utils.RATING_PLANS_CSV),
 			path.Join(attrs.FolderPath, utils.RATING_PROFILES_CSV),
 			path.Join(attrs.FolderPath, utils.SHARED_GROUPS_CSV),
-			path.Join(attrs.FolderPath, utils.LCRS_CSV),
 			path.Join(attrs.FolderPath, utils.ACTIONS_CSV),
 			path.Join(attrs.FolderPath, utils.ACTION_PLANS_CSV),
 			path.Join(attrs.FolderPath, utils.ACTION_TRIGGERS_CSV),
 			path.Join(attrs.FolderPath, utils.ACCOUNT_ACTIONS_CSV),
 			path.Join(attrs.FolderPath, utils.DERIVED_CHARGERS_CSV),
-			path.Join(attrs.FolderPath, utils.CDR_STATS_CSV),
 			path.Join(attrs.FolderPath, utils.USERS_CSV),
 			path.Join(attrs.FolderPath, utils.ALIASES_CSV),
 			path.Join(attrs.FolderPath, utils.ResourcesCsv),
@@ -144,7 +146,8 @@ func (self *ApierV2) LoadTariffPlanFromFolder(attrs utils.AttrLoadTpFromFolder, 
 			path.Join(attrs.FolderPath, utils.FiltersCsv),
 			path.Join(attrs.FolderPath, utils.SuppliersCsv),
 			path.Join(attrs.FolderPath, utils.AttributesCsv),
-		), "", self.Config.DefaultTimezone)
+			path.Join(attrs.FolderPath, utils.ChargersCsv),
+		), "", self.Config.GeneralCfg().DefaultTimezone)
 	if err := loader.LoadAll(); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -178,7 +181,6 @@ func (self *ApierV2) LoadTariffPlanFromFolder(attrs utils.AttrLoadTpFromFolder, 
 		}
 	}
 	aps, _ := loader.GetLoadedIds(utils.ACTION_PLAN_PREFIX)
-	cstKeys, _ := loader.GetLoadedIds(utils.CDR_STATS_PREFIX)
 	userKeys, _ := loader.GetLoadedIds(utils.USERS_PREFIX)
 
 	// relase tp data
@@ -189,12 +191,6 @@ func (self *ApierV2) LoadTariffPlanFromFolder(attrs utils.AttrLoadTpFromFolder, 
 		if sched != nil {
 			utils.Logger.Info("ApierV2.LoadTariffPlanFromFolder, reloading scheduler.")
 			sched.Reload()
-		}
-	}
-	if len(cstKeys) != 0 && self.CdrStatsSrv != nil {
-		var out int
-		if err := self.CdrStatsSrv.Call("CDRStatsV1.ReloadQueues", cstKeys, &out); err != nil {
-			return err
 		}
 	}
 	if len(userKeys) != 0 && self.Users != nil {
@@ -313,7 +309,7 @@ func (self *ApierV2) SetActions(attrs utils.AttrSetActions, reply *string) error
 		}
 	}
 	if !attrs.Overwrite {
-		if exists, err := self.DataManager.HasData(utils.ACTION_PREFIX, attrs.ActionsId); err != nil {
+		if exists, err := self.DataManager.HasData(utils.ACTION_PREFIX, attrs.ActionsId, ""); err != nil {
 			return utils.NewErrServerError(err)
 		} else if exists {
 			return utils.ErrExists

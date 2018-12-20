@@ -74,7 +74,7 @@ func TestTutSMGStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func TestTutSMGRpcConn(t *testing.T) {
 	var err error
-	tutSMGRpc, err = jsonrpc.Dial("tcp", tutSMGCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	tutSMGRpc, err = jsonrpc.Dial("tcp", tutSMGCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestTutSMGRpcConn(t *testing.T) {
 
 // Load the tariff plan, creating accounts and their balances
 func TestTutSMGLoadTariffPlanFromFolder(t *testing.T) {
-	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "tutorial")}
+	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "oldtutorial")}
 	if err := tutSMGRpc.Call("ApierV2.LoadTariffPlanFromFolder", attrs, &smgLoadInst); err != nil {
 		t.Error(err)
 	}
@@ -99,8 +99,8 @@ func TestTutSMGCacheStats(t *testing.T) {
 	}
 	var rcvStats *utils.CacheStats
 	expectedStats := &utils.CacheStats{Destinations: 5, ReverseDestinations: 7, RatingPlans: 4, RatingProfiles: 10,
-		Actions: 9, ActionPlans: 4, AccountActionPlans: 5, SharedGroups: 1, DerivedChargers: 1, LcrProfiles: 5,
-		CdrStats: 6, Users: 3, Aliases: 1, ReverseAliases: 2, ResourceProfiles: 3, Resources: 3, StatQueues: 1,
+		Actions: 9, ActionPlans: 4, AccountActionPlans: 5, SharedGroups: 1, DerivedChargers: 1,
+		Users: 3, Aliases: 1, ReverseAliases: 2, ResourceProfiles: 3, Resources: 3, StatQueues: 1,
 		StatQueueProfiles: 1, Thresholds: 7, ThresholdProfiles: 7, Filters: 16, SupplierProfiles: 3, AttributeProfiles: 1}
 	var args utils.AttrCacheStats
 	if err := tutSMGRpc.Call("ApierV2.GetCacheStats", args, &rcvStats); err != nil {

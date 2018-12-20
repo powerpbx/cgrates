@@ -4,21 +4,41 @@
 // Used in apier_local_tests
 // Starts rater, cdrs and mediator connecting over internal channel
 
+"general": {
+	"log_level": 7,
+},
+
 "stor_db": {
 	"db_type": "postgres",					// stor database type to use: <mysql|postgres>
 	"db_port": 5432, 						// the port to reach the stordb
 	"db_password": "CGRateS.org"
 },
 
-
 "rals": {
 	"enabled": true,						// enable Rater service: <true|false>
 },
 
 "cdrs": {
-	"enabled": true,						// start the CDR Server service:  <true|false>
+	"enabled": true,
+	"attributes_conns":[
+		{"address": "127.0.0.1:2012", "transport":"*json"},
+	],
+	"chargers_conns":[
+		{"address": "127.0.0.1:2012", "transport":"*json"},
+	],
 	"rals_conns": [
-		{"address": "*internal"}			// address where to reach the Rater for cost calculation, empty to disable functionality: <""|*internal|x.y.z.y:1234>
+		{"address": "*internal"}
+	],
+},
+
+"attributes": {
+	"enabled": true,
+},
+
+"chargers": {
+	"enabled": true,
+	"attributes_conns": [
+		{"address": "127.0.0.1:2012", "transport":"*json"},
 	],
 },
 

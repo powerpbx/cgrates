@@ -32,6 +32,18 @@ func IsSliceMember(ss []string, s string) bool {
 	return false
 }
 
+// SliceHasMember is a simpler mode to match inside a slice
+// useful to search in shared vars (no slice sort)
+func SliceHasMember(ss []string, s string) (has bool) {
+	for _, mbr := range ss {
+		if mbr == s {
+			has = true
+			break
+		}
+	}
+	return
+}
+
 func SliceWithoutMember(ss []string, s string) []string {
 	sort.Strings(ss)
 	if i := sort.SearchStrings(ss, s); i < len(ss) && ss[i] == s {
@@ -72,6 +84,23 @@ func PrefixSliceItems(slc []string, prfx string) (out []string) {
 	out = make([]string, len(slc))
 	for i, itm := range slc {
 		out[i] = prfx + itm
+	}
+	return
+}
+
+// StripSlicePrefix will strip a number of items from the beginning of the slice
+func StripSlicePrefix(slc []string, nrItems int) []string {
+	if len(slc) < nrItems {
+		return []string{}
+	}
+	return slc[nrItems:]
+}
+
+// SliceStringToIface converts slice of strings into a slice of interfaces
+func SliceStringToIface(slc []string) (ifc []interface{}) {
+	ifc = make([]interface{}, len(slc))
+	for i, itm := range slc {
+		ifc[i] = itm
 	}
 	return
 }

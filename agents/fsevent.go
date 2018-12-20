@@ -25,8 +25,7 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/sessionmanager"
+	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/fsock"
 )
@@ -66,16 +65,14 @@ const (
 	PDD_NOMEDIA_MS           = "variable_progressmsec"
 	IGNOREPARK               = "variable_cgr_ignorepark"
 	FS_VARPREFIX             = "variable_"
-	VarCGRSubsystems         = "variable_cgr_subsystems"
-	SubSAccountS             = "accounts"
-	SubSSupplierS            = "suppliers"
-	SubSResourceS            = "resources"
-	SubSAttributeS           = "attributes"
+	VarCGRSubsystems         = "variable_" + utils.CGRSubsystems
 	CGRResourceAllocation    = "cgr_resource_allocation"
 	VAR_CGR_DISCONNECT_CAUSE = "variable_" + utils.CGR_DISCONNECT_CAUSE
 	VAR_CGR_CMPUTELCR        = "variable_" + utils.CGR_COMPUTELCR
-	FsConnID                 = "FsConnID" // used to share connID info in event
+	FsConnID                 = "FsConnID" // used to share connID info in event for remote disconnects
 	VarAnswerEpoch           = "variable_answer_epoch"
+	VarCGRACD                = "variable_" + utils.CGR_ACD
+	VarCGROriginHost         = "variable_" + utils.CGROriginHost
 )
 
 func NewFSEvent(strEv string) (fsev FSEvent) {
@@ -97,6 +94,7 @@ func (fsev FSEvent) String() (result string) {
 func (fsev FSEvent) GetName() string {
 	return fsev[NAME]
 }
+
 func (fsev FSEvent) GetDirection(fieldName string) string {
 	if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
 		return fieldName[len(utils.STATIC_VALUE_PREFIX):]
@@ -126,7 +124,8 @@ func (fsev FSEvent) GetDestination(fieldName string) string {
 	if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
 		return fieldName[len(utils.STATIC_VALUE_PREFIX):]
 	}
-	return utils.FirstNonEmpty(fsev[fieldName], fsev[DESTINATION], fsev[CALL_DEST_NR], fsev[SIP_REQ_USER])
+	return utils.FirstNonEmpty(fsev[fieldName], fsev[DESTINATION],
+		fsev[CALL_DEST_NR], fsev[SIP_REQ_USER])
 }
 
 // Original dialed destination number, useful in case of unpark
@@ -140,20 +139,26 @@ func (fsev FSEvent) GetCategory(fieldName string) string {
 	if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
 		return fieldName[len(utils.STATIC_VALUE_PREFIX):]
 	}
-	return utils.FirstNonEmpty(fsev[fieldName], fsev[CATEGORY], config.CgrConfig().DefaultCategory)
+	return utils.FirstNonEmpty(fsev[fieldName], fsev[CATEGORY],
+		config.CgrConfig().GeneralCfg().DefaultCategory)
 }
+
 func (fsev FSEvent) GetUUID() string {
 	return fsev[UUID]
 }
+
 func (fsev FSEvent) GetSessionIds() []string {
 	return []string{fsev.GetUUID()}
 }
+
 func (fsev FSEvent) GetTenant(fieldName string) string {
 	if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
 		return fieldName[len(utils.STATIC_VALUE_PREFIX):]
 	}
-	return utils.FirstNonEmpty(fsev[fieldName], fsev[CSTMID], config.CgrConfig().DefaultTenant)
+	return utils.FirstNonEmpty(fsev[fieldName], fsev[CSTMID],
+		config.CgrConfig().GeneralCfg().DefaultTenant)
 }
+
 func (fsev FSEvent) GetReqType(fieldName string) string {
 	var reqTypeDetected = ""                     // Used to automatically disable processing of the request
 	if fsev["variable_process_cdr"] == "false" { // FS will not generated CDR here
@@ -164,8 +169,10 @@ func (fsev FSEvent) GetReqType(fieldName string) string {
 	if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
 		return fieldName[len(utils.STATIC_VALUE_PREFIX):]
 	}
-	return utils.FirstNonEmpty(fsev[fieldName], fsev[REQTYPE], reqTypeDetected, config.CgrConfig().DefaultReqType)
+	return utils.FirstNonEmpty(fsev[fieldName], fsev[REQTYPE],
+		reqTypeDetected, config.CgrConfig().GeneralCfg().DefaultReqType)
 }
+
 func (fsev FSEvent) MissingParameter(timezone string) string {
 	if strings.TrimSpace(fsev.GetDirection(utils.META_DEFAULT)) == "" {
 		return utils.Direction
@@ -193,6 +200,7 @@ func (fsev FSEvent) MissingParameter(timezone string) string {
 	}
 	return ""
 }
+
 func (fsev FSEvent) GetSetupTime(fieldName, timezone string) (t time.Time, err error) {
 	fsSTimeStr, hasKey := fsev[SETUP_TIME]
 	if hasKey && fsSTimeStr != "0" {
@@ -205,6 +213,7 @@ func (fsev FSEvent) GetSetupTime(fieldName, timezone string) (t time.Time, err e
 	}
 	return utils.ParseTimeDetectLayout(sTimeStr, timezone)
 }
+
 func (fsev FSEvent) GetAnswerTime(fieldName, timezone string) (t time.Time, err error) {
 	fsATimeStr, hasKey := fsev[ANSWER_TIME]
 	if hasKey && fsATimeStr != "0" {
@@ -245,6 +254,21 @@ func (fsev FSEvent) GetPdd(fieldName string) (time.Duration, error) {
 	return utils.ParseDurationWithSecs(PDDStr)
 }
 
+func (fsev FSEvent) GetADC(fieldName string) (time.Duration, error) {
+	var ACDStr string
+	if utils.IsSliceMember([]string{utils.ACD, utils.META_DEFAULT}, fieldName) {
+		ACDStr = utils.FirstNonEmpty(fsev[VarCGRACD])
+		if len(ACDStr) != 0 {
+			ACDStr = ACDStr + "s" //  ACD is in seconds and CGR expects it in seconds
+		}
+	} else if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
+		ACDStr = fieldName[len(utils.STATIC_VALUE_PREFIX):]
+	} else {
+		ACDStr = fsev[fieldName]
+	}
+	return utils.ParseDurationWithSecs(ACDStr)
+}
+
 func (fsev FSEvent) GetSupplier(fieldName string) string {
 	if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
 		return fieldName[len(utils.STATIC_VALUE_PREFIX):]
@@ -263,26 +287,31 @@ func (fsev FSEvent) GetOriginatorIP(fieldName string) string {
 	if strings.HasPrefix(fieldName, utils.STATIC_VALUE_PREFIX) { // Static value
 		return fieldName[len(utils.STATIC_VALUE_PREFIX):]
 	}
-	return utils.FirstNonEmpty(fsev[fieldName], fsev[FS_IPv4])
+	return utils.FirstNonEmpty(fsev[fieldName], fsev[VarCGROriginHost], fsev[FS_IPv4])
 }
 
 func (fsev FSEvent) GetExtraFields() map[string]string {
 	extraFields := make(map[string]string)
 	for _, fldRule := range config.CgrConfig().FsAgentCfg().ExtraFields {
-		extraFields[fldRule.Id] = fsev.ParseEventValue(fldRule, config.CgrConfig().DefaultTimezone)
+		if parsed, err := fsev.ParseEventValue(fldRule,
+			config.CgrConfig().GeneralCfg().DefaultTimezone); err != nil {
+			utils.Logger.Warning(fmt.Sprintf("<%s> error: %s parsing event rule: %+v", utils.FreeSWITCHAgent, err.Error(), fldRule))
+		} else {
+			extraFields[fldRule.AttrName()] = parsed
+		}
 	}
 	return extraFields
 }
 
 // Used in derived charging and sittuations when we need to run regexp on fields
-func (fsev FSEvent) ParseEventValue(rsrFld *utils.RSRField, timezone string) string {
-	switch rsrFld.Id {
-	case utils.TOR:
+func (fsev FSEvent) ParseEventValue(rsrFld *config.RSRParser, timezone string) (parsed string, err error) {
+	switch rsrFld.AttrName() {
+	case utils.ToR:
 		return rsrFld.ParseValue(utils.VOICE)
 	case utils.OriginID:
 		return rsrFld.ParseValue(fsev.GetUUID())
 	case utils.OriginHost:
-		return rsrFld.ParseValue(fsev["FreeSWITCH-IPv4"])
+		return rsrFld.ParseValue(utils.FirstNonEmpty(fsev[VarCGROriginHost], fsev[FS_IPv4]))
 	case utils.Source:
 		return rsrFld.ParseValue("FS_EVENT")
 	case utils.RequestType:
@@ -315,43 +344,40 @@ func (fsev FSEvent) ParseEventValue(rsrFld *utils.RSRField, timezone string) str
 		return rsrFld.ParseValue(fsev.GetSupplier(""))
 	case utils.DISCONNECT_CAUSE:
 		return rsrFld.ParseValue(fsev.GetDisconnectCause(""))
-	case utils.MEDI_RUNID:
+	case utils.RunID:
 		return rsrFld.ParseValue(utils.DEFAULT_RUNID)
-	case utils.COST:
+	case utils.Cost:
 		return rsrFld.ParseValue(strconv.FormatFloat(-1, 'f', -1, 64)) // Recommended to use FormatCost
 	default:
-		val := rsrFld.ParseValue(fsev[rsrFld.Id])
-		if val == "" { // Trying looking for variable_+ Id also if the first one not found
-			val = rsrFld.ParseValue(fsev[FS_VARPREFIX+rsrFld.Id])
+		if parsed, err = rsrFld.ParseValue(fsev[rsrFld.AttrName()]); err != nil {
+			parsed, err = rsrFld.ParseValue(fsev[FS_VARPREFIX+rsrFld.AttrName()])
 		}
-		return val
+		return
 	}
 }
 
-func (fsev FSEvent) AsCDR(timezone string) *engine.CDR {
-	storCdr := new(engine.CDR)
-	storCdr.ToR = utils.VOICE
-	storCdr.OriginID = fsev.GetUUID()
-	storCdr.OriginHost = fsev.GetOriginatorIP(utils.META_DEFAULT)
-	storCdr.Source = "FS_" + fsev.GetName()
-	storCdr.RequestType = fsev.GetReqType(utils.META_DEFAULT)
-	storCdr.Tenant = fsev.GetTenant(utils.META_DEFAULT)
-	storCdr.Category = fsev.GetCategory(utils.META_DEFAULT)
-	storCdr.Account = fsev.GetAccount(utils.META_DEFAULT)
-	storCdr.Subject = fsev.GetSubject(utils.META_DEFAULT)
-	storCdr.Destination = fsev.GetDestination(utils.META_DEFAULT)
-	storCdr.SetupTime, _ = fsev.GetSetupTime(utils.META_DEFAULT, timezone)
-	storCdr.AnswerTime, _ = fsev.GetAnswerTime(utils.META_DEFAULT, timezone)
-	storCdr.Usage, _ = fsev.GetDuration(utils.META_DEFAULT)
-	storCdr.ExtraFields = fsev.GetExtraFields()
-	storCdr.Cost = -1
-	return storCdr
+// AsCGREvent converts FSEvent into CGREvent
+func (fsev FSEvent) AsCGREvent(timezone string) (cgrEv *utils.CGREvent, err error) {
+	sTime, err := fsev.GetSetupTime(utils.META_DEFAULT, timezone)
+	if err != nil {
+		return nil, err
+	}
+	cgrEv = &utils.CGREvent{
+		Tenant: fsev.GetTenant(utils.META_DEFAULT),
+		ID:     utils.UUIDSha1Prefix(),
+		Time:   &sTime,
+		Event:  fsev.AsMapStringInterface(timezone),
+	}
+	return cgrEv, nil
 }
 
 // Used with RLs
 func (fsev FSEvent) AsMapStringInterface(timezone string) map[string]interface{} {
 	mp := make(map[string]interface{})
-	mp[utils.TOR] = utils.VOICE
+	for fld, val := range fsev.GetExtraFields() {
+		mp[fld] = val
+	}
+	mp[utils.ToR] = utils.VOICE
 	mp[utils.OriginID] = fsev.GetUUID()
 	mp[utils.OriginHost] = fsev.GetOriginatorIP(utils.META_DEFAULT)
 	mp[utils.Source] = "FS_" + fsev.GetName()
@@ -366,87 +392,81 @@ func (fsev FSEvent) AsMapStringInterface(timezone string) map[string]interface{}
 	mp[utils.AnswerTime], _ = fsev.GetAnswerTime(utils.META_DEFAULT, timezone)
 	mp[utils.Usage], _ = fsev.GetDuration(utils.META_DEFAULT)
 	mp[utils.PDD], _ = fsev.GetPdd(utils.META_DEFAULT)
-	mp[utils.COST] = -1
+	mp[utils.ACD], _ = fsev.GetADC(utils.META_DEFAULT)
+	mp[utils.COST] = -1.0
 	mp[utils.SUPPLIER] = fsev.GetSupplier(utils.META_DEFAULT)
 	mp[utils.DISCONNECT_CAUSE] = fsev.GetDisconnectCause(utils.META_DEFAULT)
 	return mp
 }
 
 // V1AuthorizeArgs returns the arguments used in SMGv1.Authorize
-func (fsev FSEvent) V1AuthorizeArgs() (args *sessionmanager.V1AuthorizeArgs) {
-	args = &sessionmanager.V1AuthorizeArgs{ // defaults
+func (fsev FSEvent) V1AuthorizeArgs() (args *sessions.V1AuthorizeArgs) {
+	cgrEv, err := fsev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
+		return
+	}
+	cgrEv.Event[utils.Usage] = config.CgrConfig().SessionSCfg().MaxCallDuration // no billsec available in auth
+	args = &sessions.V1AuthorizeArgs{                                           // defaults
 		GetMaxUsage: true,
-		CGREvent: utils.CGREvent{
-			Tenant: fsev.GetTenant(utils.META_DEFAULT),
-			ID:     utils.UUIDSha1Prefix(),
-			Event:  fsev.AsMapStringInterface(config.CgrConfig().DefaultTimezone),
-		},
+		CGREvent:    *cgrEv,
 	}
 	subsystems, has := fsev[VarCGRSubsystems]
 	if !has {
 		return
 	}
-	if strings.Index(subsystems, SubSAccountS) == -1 {
-		args.GetMaxUsage = false
+	args.GetMaxUsage = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.AuthorizeResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.GetSuppliers = strings.Index(subsystems, utils.MetaSuppliers) != -1
+	args.SuppliersIgnoreErrors = strings.Index(subsystems, utils.MetaSuppliersIgnoreErrors) != -1
+	if strings.Index(subsystems, utils.MetaSuppliersEventCost) != -1 {
+		args.SuppliersMaxCost = utils.MetaEventCost
 	}
-	if strings.Index(subsystems, SubSResourceS) != -1 {
-		args.AuthorizeResources = true
-	}
-	if strings.Index(subsystems, SubSSupplierS) != -1 {
-		args.GetSuppliers = true
-	}
-	if strings.Index(subsystems, SubSAttributeS) != -1 {
-		args.GetAttributes = true
-	}
+	args.GetAttributes = strings.Index(subsystems, utils.MetaAttributes) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
 	return
 }
 
-// V2InitSessionArgs returns the arguments used in SMGv1.InitSession
-func (fsev FSEvent) V1InitSessionArgs() (args *sessionmanager.V1InitSessionArgs) {
-	args = &sessionmanager.V1InitSessionArgs{ // defaults
+// V1InitSessionArgs returns the arguments used in SessionSv1.InitSession
+func (fsev FSEvent) V1InitSessionArgs() (args *sessions.V1InitSessionArgs) {
+	cgrEv, err := fsev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
+		return
+	}
+	args = &sessions.V1InitSessionArgs{ // defaults
 		InitSession: true,
-		CGREvent: utils.CGREvent{
-			Tenant: fsev.GetTenant(utils.META_DEFAULT),
-			ID:     utils.UUIDSha1Prefix(),
-			Event:  fsev.AsMapStringInterface(config.CgrConfig().DefaultTimezone),
-		},
+		CGREvent:    *cgrEv,
 	}
 	subsystems, has := fsev[VarCGRSubsystems]
 	if !has {
 		return
 	}
-	if strings.Index(subsystems, SubSAccountS) == -1 {
-		args.InitSession = false
-	}
-	if strings.Index(subsystems, SubSResourceS) != -1 {
-		args.AllocateResources = true
-	}
-	if strings.Index(subsystems, SubSAttributeS) != -1 {
-		args.GetAttributes = true
-	}
+	args.InitSession = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.AllocateResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.GetAttributes = strings.Index(subsystems, utils.MetaAttributes) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
 	return
 }
 
 // V1TerminateSessionArgs returns the arguments used in SMGv1.TerminateSession
-func (fsev FSEvent) V1TerminateSessionArgs() (args *sessionmanager.V1TerminateSessionArgs) {
-	args = &sessionmanager.V1TerminateSessionArgs{ // defaults
+func (fsev FSEvent) V1TerminateSessionArgs() (args *sessions.V1TerminateSessionArgs) {
+	cgrEv, err := fsev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
+		return
+	}
+	args = &sessions.V1TerminateSessionArgs{ // defaults
 		TerminateSession: true,
-		CGREvent: utils.CGREvent{
-			Tenant: fsev.GetTenant(utils.META_DEFAULT),
-			ID:     utils.UUIDSha1Prefix(),
-			Event:  fsev.AsMapStringInterface(config.CgrConfig().DefaultTimezone),
-		},
+		CGREvent:         *cgrEv,
 	}
 	subsystems, has := fsev[VarCGRSubsystems]
 	if !has {
 		return
 	}
-	if strings.Index(subsystems, SubSAccountS) == -1 {
-		args.TerminateSession = false
-	}
-	if strings.Index(subsystems, SubSResourceS) != -1 {
-		args.ReleaseResources = true
-	}
+	args.TerminateSession = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.ReleaseResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
 	return
 }
 

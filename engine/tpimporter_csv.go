@@ -53,8 +53,6 @@ var fileHandlers = map[string]func(*TPCSVImporter, string) error{
 	utils.ACTION_TRIGGERS_CSV:   (*TPCSVImporter).importActionTriggers,
 	utils.ACCOUNT_ACTIONS_CSV:   (*TPCSVImporter).importAccountActions,
 	utils.DERIVED_CHARGERS_CSV:  (*TPCSVImporter).importDerivedChargers,
-	utils.CDR_STATS_CSV:         (*TPCSVImporter).importCdrStats,
-	utils.LCRS_CSV:              (*TPCSVImporter).importLcrs,
 	utils.USERS_CSV:             (*TPCSVImporter).importUsers,
 	utils.ALIASES_CSV:           (*TPCSVImporter).importAliases,
 	utils.ResourcesCsv:          (*TPCSVImporter).importResources,
@@ -63,6 +61,7 @@ var fileHandlers = map[string]func(*TPCSVImporter, string) error{
 	utils.FiltersCsv:            (*TPCSVImporter).importFilters,
 	utils.SuppliersCsv:          (*TPCSVImporter).importSuppliers,
 	utils.AttributesCsv:         (*TPCSVImporter).importAttributeProfiles,
+	utils.ChargersCsv:           (*TPCSVImporter).importChargerProfiles,
 }
 
 func (self *TPCSVImporter) Run() error {
@@ -74,13 +73,11 @@ func (self *TPCSVImporter) Run() error {
 		path.Join(self.DirPath, utils.RATING_PLANS_CSV),
 		path.Join(self.DirPath, utils.RATING_PROFILES_CSV),
 		path.Join(self.DirPath, utils.SHARED_GROUPS_CSV),
-		path.Join(self.DirPath, utils.LCRS_CSV),
 		path.Join(self.DirPath, utils.ACTIONS_CSV),
 		path.Join(self.DirPath, utils.ACTION_PLANS_CSV),
 		path.Join(self.DirPath, utils.ACTION_TRIGGERS_CSV),
 		path.Join(self.DirPath, utils.ACCOUNT_ACTIONS_CSV),
 		path.Join(self.DirPath, utils.DERIVED_CHARGERS_CSV),
-		path.Join(self.DirPath, utils.CDR_STATS_CSV),
 		path.Join(self.DirPath, utils.USERS_CSV),
 		path.Join(self.DirPath, utils.ALIASES_CSV),
 		path.Join(self.DirPath, utils.ResourcesCsv),
@@ -89,6 +86,7 @@ func (self *TPCSVImporter) Run() error {
 		path.Join(self.DirPath, utils.FiltersCsv),
 		path.Join(self.DirPath, utils.SuppliersCsv),
 		path.Join(self.DirPath, utils.AttributesCsv),
+		path.Join(self.DirPath, utils.ChargersCsv),
 	)
 	files, _ := ioutil.ReadDir(self.DirPath)
 	for _, f := range files {
@@ -299,36 +297,6 @@ func (self *TPCSVImporter) importDerivedChargers(fn string) error {
 	return self.StorDb.SetTPDerivedChargers(tps)
 }
 
-func (self *TPCSVImporter) importCdrStats(fn string) error {
-	if self.Verbose {
-		log.Printf("Processing file: <%s> ", fn)
-	}
-	tps, err := self.csvr.GetTPCdrStats(self.TPid, "")
-	if err != nil {
-		return err
-	}
-	for i := 0; i < len(tps); i++ {
-		tps[i].TPid = self.TPid
-	}
-
-	return self.StorDb.SetTPCdrStats(tps)
-}
-
-func (self *TPCSVImporter) importLcrs(fn string) error {
-	if self.Verbose {
-		log.Printf("Processing file: <%s> ", fn)
-	}
-	tps, err := self.csvr.GetTPLCRs(nil)
-	if err != nil {
-		return err
-	}
-	for i := 0; i < len(tps); i++ {
-		tps[i].TPid = self.TPid
-	}
-
-	return self.StorDb.SetTPLCRs(tps)
-}
-
 func (self *TPCSVImporter) importUsers(fn string) error {
 	if self.Verbose {
 		log.Printf("Processing file: <%s> ", fn)
@@ -422,4 +390,15 @@ func (self *TPCSVImporter) importAttributeProfiles(fn string) error {
 		return err
 	}
 	return self.StorDb.SetTPAttributes(rls)
+}
+
+func (self *TPCSVImporter) importChargerProfiles(fn string) error {
+	if self.Verbose {
+		log.Printf("Processing file: <%s> ", fn)
+	}
+	rls, err := self.csvr.GetTPChargers(self.TPid, "")
+	if err != nil {
+		return err
+	}
+	return self.StorDb.SetTPChargers(rls)
 }

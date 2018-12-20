@@ -15,7 +15,7 @@ CREATE TABLE cdrs (
   request_type varchar(24) NOT NULL,
   direction varchar(8) NOT NULL,
   tenant varchar(64) NOT NULL,
-  category varchar(32) NOT NULL,
+  category varchar(64) NOT NULL,
   account varchar(128) NOT NULL,
   subject varchar(128) NOT NULL,
   destination varchar(128) NOT NULL,
@@ -38,8 +38,8 @@ CREATE TABLE cdrs (
   UNIQUE KEY cdrrun (cgrid, run_id, origin_id)
 );
 
-DROP TABLE IF EXISTS sm_costs;
-CREATE TABLE sm_costs (
+DROP TABLE IF EXISTS sessions_costs;
+CREATE TABLE sessions_costs (
   id int(11) NOT NULL AUTO_INCREMENT,
   cgrid char(40) NOT NULL,
   run_id  varchar(64) NOT NULL,

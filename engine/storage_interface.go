@@ -26,7 +26,7 @@ import (
 	"reflect"
 
 	"github.com/cgrates/cgrates/utils"
-	"github.com/cgrates/mgo/bson"
+	"github.com/mongodb/mongo-go-driver/bson"
 	"github.com/ugorji/go/codec"
 )
 
@@ -48,7 +48,7 @@ type Storage interface {
 type DataDB interface {
 	Storage
 	Marshaler() Marshaler
-	HasDataDrv(string, string) (bool, error)
+	HasDataDrv(string, string, string) (bool, error)
 	GetRatingPlanDrv(string) (*RatingPlan, error)
 	SetRatingPlanDrv(*RatingPlan) error
 	RemoveRatingPlanDrv(key string) (err error)
@@ -61,12 +61,6 @@ type DataDB interface {
 	SetReverseDestination(*Destination, string) error
 	GetReverseDestination(string, bool, string) ([]string, error)
 	UpdateReverseDestination(*Destination, *Destination, string) error
-	GetLCRDrv(string) (*LCR, error)
-	SetLCRDrv(*LCR) error
-	RemoveLCRDrv(id, transactionID string) (err error)
-	SetCdrStatsDrv(*CdrStats) error
-	GetCdrStatsDrv(string) (*CdrStats, error)
-	GetAllCdrStatsDrv() ([]*CdrStats, error)
 	GetDerivedChargersDrv(string) (*utils.DerivedChargers, error)
 	SetDerivedChargers(string, *utils.DerivedChargers, string) error
 	RemoveDerivedChargersDrv(id, transactionID string) (err error)
@@ -83,7 +77,8 @@ type DataDB interface {
 	SetActionPlan(string, *ActionPlan, bool, string) error
 	RemoveActionPlan(key string, transactionID string) error
 	GetAllActionPlans() (map[string]*ActionPlan, error)
-	GetAccountActionPlans(acntID string, skipCache bool, transactionID string) (apIDs []string, err error)
+	GetAccountActionPlans(acntID string, skipCache bool,
+		transactionID string) (apIDs []string, err error)
 	SetAccountActionPlans(acntID string, apIDs []string, overwrite bool) (err error)
 	RemAccountActionPlans(acntID string, apIDs []string) (err error)
 	PushTask(*Task) error
@@ -91,9 +86,6 @@ type DataDB interface {
 	GetAccount(string) (*Account, error)
 	SetAccount(*Account) error
 	RemoveAccount(string) error
-	GetCdrStatsQueueDrv(string) (*CDRStatsQueue, error)
-	SetCdrStatsQueueDrv(*CDRStatsQueue) error
-	RemoveCdrStatsQueueDrv(id string) (err error)
 	GetSubscribersDrv() (map[string]*SubscriberData, error)
 	SetSubscriberDrv(string, *SubscriberData) error
 	RemoveSubscriberDrv(string) error
@@ -117,13 +109,13 @@ type DataDB interface {
 	RemoveTimingDrv(string) error
 	GetLoadHistory(int, bool, string) ([]*utils.LoadInstance, error)
 	AddLoadHistory(*utils.LoadInstance, int, string) error
-	GetFilterIndexesDrv(dbKey, filterType string, fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error)
-	SetFilterIndexesDrv(dbKey string, indexes map[string]utils.StringMap) (err error)
-	RemoveFilterIndexesDrv(id string) (err error)
-	GetFilterReverseIndexesDrv(dbKey string, fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error)
-	SetFilterReverseIndexesDrv(dbKey string, indexes map[string]utils.StringMap) (err error)
-	RemoveFilterReverseIndexesDrv(dbKey string) (err error)
-	MatchFilterIndexDrv(dbKey, filterType, fieldName, fieldVal string) (itemIDs utils.StringMap, err error)
+	GetFilterIndexesDrv(cacheID, itemIDPrefix, filterType string,
+		fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error)
+	SetFilterIndexesDrv(cacheID, itemIDPrefix string,
+		indexes map[string]utils.StringMap, commit bool, transactionID string) (err error)
+	RemoveFilterIndexesDrv(cacheID, itemIDPrefix string) (err error)
+	MatchFilterIndexDrv(cacheID, itemIDPrefix,
+		filterType, fieldName, fieldVal string) (itemIDs utils.StringMap, err error)
 	GetStatQueueProfileDrv(tenant string, ID string) (sq *StatQueueProfile, err error)
 	SetStatQueueProfileDrv(sq *StatQueueProfile) (err error)
 	RemStatQueueProfileDrv(tenant, id string) (err error)
@@ -145,6 +137,9 @@ type DataDB interface {
 	GetAttributeProfileDrv(string, string) (*AttributeProfile, error)
 	SetAttributeProfileDrv(*AttributeProfile) error
 	RemoveAttributeProfileDrv(string, string) error
+	GetChargerProfileDrv(string, string) (*ChargerProfile, error)
+	SetChargerProfileDrv(*ChargerProfile) error
+	RemoveChargerProfileDrv(string, string) error
 }
 
 type StorDB interface {
@@ -171,7 +166,8 @@ type LoadStorage interface {
 // LoadReader reads from .csv or TP tables and provides the data ready for the tp_db or data_db.
 type LoadReader interface {
 	GetTpIds(string) ([]string, error)
-	GetTpTableIds(string, string, utils.TPDistinctIds, map[string]string, *utils.Paginator) ([]string, error)
+	GetTpTableIds(string, string, utils.TPDistinctIds,
+		map[string]string, *utils.Paginator) ([]string, error)
 	GetTPTimings(string, string) ([]*utils.ApierTPTiming, error)
 	GetTPDestinations(string, string) ([]*utils.TPDestination, error)
 	GetTPRates(string, string) ([]*utils.TPRate, error)
@@ -179,8 +175,6 @@ type LoadReader interface {
 	GetTPRatingPlans(string, string, *utils.Paginator) ([]*utils.TPRatingPlan, error)
 	GetTPRatingProfiles(*utils.TPRatingProfile) ([]*utils.TPRatingProfile, error)
 	GetTPSharedGroups(string, string) ([]*utils.TPSharedGroups, error)
-	GetTPCdrStats(string, string) ([]*utils.TPCdrStats, error)
-	GetTPLCRs(*utils.TPLcrRules) ([]*utils.TPLcrRules, error)
 	GetTPUsers(*utils.TPUsers) ([]*utils.TPUsers, error)
 	GetTPAliases(*utils.TPAliases) ([]*utils.TPAliases, error)
 	GetTPDerivedChargers(*utils.TPDerivedChargers) ([]*utils.TPDerivedChargers, error)
@@ -194,6 +188,7 @@ type LoadReader interface {
 	GetTPFilters(string, string) ([]*utils.TPFilterProfile, error)
 	GetTPSuppliers(string, string) ([]*utils.TPSupplierProfile, error)
 	GetTPAttributes(string, string) ([]*utils.TPAttributeProfile, error)
+	GetTPChargers(string, string) ([]*utils.TPChargerProfile, error)
 }
 
 type LoadWriter interface {
@@ -205,11 +200,9 @@ type LoadWriter interface {
 	SetTPRatingPlans([]*utils.TPRatingPlan) error
 	SetTPRatingProfiles([]*utils.TPRatingProfile) error
 	SetTPSharedGroups([]*utils.TPSharedGroups) error
-	SetTPCdrStats([]*utils.TPCdrStats) error
 	SetTPUsers([]*utils.TPUsers) error
 	SetTPAliases([]*utils.TPAliases) error
 	SetTPDerivedChargers([]*utils.TPDerivedChargers) error
-	SetTPLCRs([]*utils.TPLcrRules) error
 	SetTPActions([]*utils.TPActions) error
 	SetTPActionPlans([]*utils.TPActionPlan) error
 	SetTPActionTriggers([]*utils.TPActionTriggers) error
@@ -220,6 +213,7 @@ type LoadWriter interface {
 	SetTPFilters([]*utils.TPFilterProfile) error
 	SetTPSuppliers([]*utils.TPSupplierProfile) error
 	SetTPAttributes([]*utils.TPAttributeProfile) error
+	SetTPChargers([]*utils.TPChargerProfile) error
 }
 
 // NewMarshaler returns the marshaler type selected by mrshlerStr

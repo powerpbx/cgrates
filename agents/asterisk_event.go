@@ -19,9 +19,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package agents
 
 import (
+	"fmt"
 	"strings"
 
-	"github.com/cgrates/cgrates/sessionmanager"
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -152,6 +154,10 @@ func (smaEv *SMAsteriskEvent) Supplier() string {
 	return smaEv.cachedFields[utils.CGR_SUPPLIER]
 }
 
+func (smaEv *SMAsteriskEvent) Subsystems() string {
+	return smaEv.cachedFields[utils.CGRSubsystems]
+}
+
 func (smaEv *SMAsteriskEvent) DisconnectCause() string {
 	cachedKey := utils.CGR_DISCONNECT_CAUSE
 	cachedVal, hasIt := smaEv.cachedFields[cachedKey]
@@ -174,7 +180,38 @@ func (smaEv *SMAsteriskEvent) ExtraParameters() (extraParams map[string]string) 
 	return
 }
 
-func (smaEv *SMAsteriskEvent) AsSMGenericEvent() *sessionmanager.SMGenericEvent {
+func (smaEv *SMAsteriskEvent) UpdateCGREvent(cgrEv *utils.CGREvent) error {
+	resCGREv := *cgrEv
+	switch smaEv.EventType() {
+	case ARIChannelStateChange:
+		resCGREv.Event[utils.EVENT_NAME] = SMASessionStart
+		resCGREv.Event[utils.AnswerTime] = smaEv.Timestamp()
+	case ARIChannelDestroyed:
+		resCGREv.Event[utils.EVENT_NAME] = SMASessionTerminate
+		resCGREv.Event[utils.DISCONNECT_CAUSE] = smaEv.DisconnectCause()
+		if _, hasIt := resCGREv.Event[utils.AnswerTime]; !hasIt {
+			resCGREv.Event[utils.Usage] = "0s"
+		} else {
+			if aTime, err := utils.IfaceAsTime(resCGREv.Event[utils.AnswerTime],
+				config.CgrConfig().GeneralCfg().DefaultTimezone); err != nil {
+				return err
+			} else if aTime.IsZero() {
+				resCGREv.Event[utils.Usage] = "0s"
+			} else {
+				actualTime, err := utils.ParseTimeDetectLayout(smaEv.Timestamp(), "")
+				if err != nil {
+					return err
+				}
+				resCGREv.Event[utils.Usage] = actualTime.Sub(aTime).String()
+			}
+		}
+	}
+	*cgrEv = resCGREv
+	return nil
+}
+
+func (smaEv *SMAsteriskEvent) AsMapStringInterface() (mp map[string]interface{}) {
+	mp = make(map[string]interface{})
 	var evName string
 	switch smaEv.EventType() {
 	case ARIStasisStart:
@@ -184,62 +221,111 @@ func (smaEv *SMAsteriskEvent) AsSMGenericEvent() *sessionmanager.SMGenericEvent 
 	case ARIChannelDestroyed:
 		evName = SMASessionTerminate
 	}
-	smgEv := sessionmanager.SMGenericEvent{utils.EVENT_NAME: evName}
-	smgEv[utils.OriginID] = smaEv.ChannelID()
+	mp[utils.EVENT_NAME] = evName
+	mp[utils.OriginID] = smaEv.ChannelID()
 	if smaEv.RequestType() != "" {
-		smgEv[utils.RequestType] = smaEv.RequestType()
+		mp[utils.RequestType] = smaEv.RequestType()
 	}
 	if smaEv.Tenant() != "" {
-		smgEv[utils.Tenant] = smaEv.Tenant()
+		mp[utils.Tenant] = smaEv.Tenant()
 	}
 	if smaEv.Category() != "" {
-		smgEv[utils.Category] = smaEv.Category()
+		mp[utils.Category] = smaEv.Category()
 	}
 	if smaEv.Subject() != "" {
-		smgEv[utils.Subject] = smaEv.Subject()
+		mp[utils.Subject] = smaEv.Subject()
 	}
-	smgEv[utils.OriginHost] = smaEv.OriginatorIP()
-	smgEv[utils.Account] = smaEv.Account()
-	smgEv[utils.Destination] = smaEv.Destination()
-	smgEv[utils.SetupTime] = smaEv.Timestamp()
+	mp[utils.OriginHost] = smaEv.OriginatorIP()
+	mp[utils.Account] = smaEv.Account()
+	mp[utils.Destination] = smaEv.Destination()
+	mp[utils.SetupTime] = smaEv.SetupTime()
 	if smaEv.Supplier() != "" {
-		smgEv[utils.SUPPLIER] = smaEv.Supplier()
+		mp[utils.SUPPLIER] = smaEv.Supplier()
 	}
 	for extraKey, extraVal := range smaEv.ExtraParameters() { // Append extraParameters
-		smgEv[extraKey] = extraVal
+		mp[extraKey] = extraVal
 	}
-	return &smgEv
+	mp[utils.Source] = utils.AsteriskAgent
+	return
 }
 
-// Updates fields in smgEv based on own fields
-// Using pointer so we update it directly in cache
-func (smaEv *SMAsteriskEvent) UpdateSMGEvent(smgEv *sessionmanager.SMGenericEvent) error {
-	resSMGEv := *smgEv
-	switch smaEv.EventType() {
-	case ARIChannelStateChange:
-		if smaEv.ChannelState() == channelUp {
-			resSMGEv[utils.EVENT_NAME] = SMASessionStart
-			resSMGEv[utils.AnswerTime] = smaEv.Timestamp()
-		}
-	case ARIChannelDestroyed:
-		resSMGEv[utils.EVENT_NAME] = SMASessionTerminate
-		resSMGEv[utils.DISCONNECT_CAUSE] = smaEv.DisconnectCause()
-		if _, hasIt := resSMGEv[utils.AnswerTime]; !hasIt {
-			resSMGEv[utils.Usage] = "0s"
-		} else {
-			if aTime, err := smgEv.GetAnswerTime(utils.META_DEFAULT, ""); err != nil {
-				return err
-			} else if aTime.IsZero() {
-				resSMGEv[utils.Usage] = "0s"
-			} else {
-				actualTime, err := utils.ParseTimeDetectLayout(smaEv.Timestamp(), "")
-				if err != nil {
-					return err
-				}
-				resSMGEv[utils.Usage] = actualTime.Sub(aTime).String()
-			}
-		}
+// AsCDR converts AsteriskEvent into CGREvent
+func (smaEv *SMAsteriskEvent) AsCGREvent(timezone string) (cgrEv *utils.CGREvent, err error) {
+	setupTime, err := utils.ParseTimeDetectLayout(
+		smaEv.Timestamp(), timezone)
+	if err != nil {
+		return
 	}
-	*smgEv = resSMGEv
-	return nil
+	cgrEv = &utils.CGREvent{
+		Tenant: utils.FirstNonEmpty(smaEv.Tenant(),
+			config.CgrConfig().GeneralCfg().DefaultTenant),
+		ID:    utils.UUIDSha1Prefix(),
+		Time:  &setupTime,
+		Event: smaEv.AsMapStringInterface(),
+	}
+	return cgrEv, nil
+}
+
+func (smaEv *SMAsteriskEvent) V1AuthorizeArgs() (args *sessions.V1AuthorizeArgs) {
+	cgrEv, err := smaEv.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
+		return
+	}
+	args = &sessions.V1AuthorizeArgs{
+		GetMaxUsage: true,
+		CGREvent:    *cgrEv,
+	}
+	if smaEv.Subsystems() == utils.EmptyString {
+		utils.Logger.Err(fmt.Sprintf("<%s> cgr_subsystems variable is not set",
+			utils.AsteriskAgent))
+		return
+	}
+	args.GetMaxUsage = strings.Index(smaEv.Subsystems(), utils.MetaAccounts) != -1
+	args.AuthorizeResources = strings.Index(smaEv.Subsystems(), utils.MetaResources) != -1
+	args.GetSuppliers = strings.Index(smaEv.Subsystems(), utils.MetaSuppliers) != -1
+	args.SuppliersIgnoreErrors = strings.Index(smaEv.Subsystems(), utils.MetaSuppliersIgnoreErrors) != -1
+	if strings.Index(smaEv.Subsystems(), utils.MetaSuppliersEventCost) != -1 {
+		args.SuppliersMaxCost = utils.MetaEventCost
+	}
+	args.GetAttributes = strings.Index(smaEv.Subsystems(), utils.MetaAttributes) != -1
+	args.ProcessThresholds = strings.Index(smaEv.Subsystems(), utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(smaEv.Subsystems(), utils.MetaStats) != -1
+	return
+}
+
+func (smaEv *SMAsteriskEvent) V1InitSessionArgs(cgrEv utils.CGREvent) (args *sessions.V1InitSessionArgs) {
+	args = &sessions.V1InitSessionArgs{ // defaults
+		InitSession: true,
+		CGREvent:    cgrEv,
+	}
+	subsystems, err := cgrEv.FieldAsString(utils.CGRSubsystems)
+	if err != nil {
+		utils.Logger.Err(fmt.Sprintf("<%s> event: %s don't have cgr_subsystems variable",
+			utils.AsteriskAgent, utils.ToJSON(cgrEv)))
+		return
+	}
+	args.InitSession = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.AllocateResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.GetAttributes = strings.Index(subsystems, utils.MetaAttributes) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
+	return
+}
+
+func (smaEv *SMAsteriskEvent) V1TerminateSessionArgs(cgrEv utils.CGREvent) (args *sessions.V1TerminateSessionArgs) {
+	args = &sessions.V1TerminateSessionArgs{ // defaults
+		TerminateSession: true,
+		CGREvent:         cgrEv,
+	}
+	subsystems, err := cgrEv.FieldAsString(utils.CGRSubsystems)
+	if err != nil {
+		utils.Logger.Err(fmt.Sprintf("<%s> event: %s don't have cgr_subsystems variable",
+			utils.AsteriskAgent, utils.ToJSON(cgrEv)))
+		return
+	}
+	args.TerminateSession = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.ReleaseResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
+	return
 }
