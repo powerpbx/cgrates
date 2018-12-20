@@ -24,27 +24,54 @@ import (
 )
 
 // GetAttributeProfile returns an Attribute Profile
-func (apierV1 *ApierV1) GetAttributeProfile(arg utils.TenantID, reply *engine.ExternalAttributeProfile) error {
+func (apierV1 *ApierV1) GetAttributeProfile(arg utils.TenantID, reply *engine.AttributeProfile) error {
 	if missing := utils.MissingStructFields(&arg, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if alsPrf, err := apierV1.DataManager.GetAttributeProfile(arg.Tenant, arg.ID, false, utils.NonTransactional); err != nil {
+	if alsPrf, err := apierV1.DataManager.GetAttributeProfile(arg.Tenant, arg.ID, true, true, utils.NonTransactional); err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
 		}
 		return err
 	} else {
-		*reply = *engine.NewExternalAttributeProfileFromAttributeProfile(alsPrf)
+		*reply = *alsPrf
 	}
 	return nil
 }
 
+// GetAttributeProfileIDs returns list of attributeProfile IDs registered for a tenant
+func (apierV1 *ApierV1) GetAttributeProfileIDs(tenant string, attrPrfIDs *[]string) error {
+	prfx := utils.AttributeProfilePrefix + tenant + ":"
+	keys, err := apierV1.DataManager.DataDB().GetKeysForPrefix(prfx)
+	if err != nil {
+		return err
+	}
+	retIDs := make([]string, len(keys))
+	for i, key := range keys {
+		retIDs[i] = key[len(prfx):]
+	}
+	*attrPrfIDs = retIDs
+	return nil
+}
+
 //SetAttributeProfile add/update a new Attribute Profile
-func (apierV1 *ApierV1) SetAttributeProfile(extAls *engine.ExternalAttributeProfile, reply *string) error {
-	if missing := utils.MissingStructFields(extAls, []string{"Tenant", "ID"}); len(missing) != 0 {
+func (apierV1 *ApierV1) SetAttributeProfile(alsPrf *engine.AttributeProfile, reply *string) error {
+	if missing := utils.MissingStructFields(alsPrf, []string{"Tenant", "ID"}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	alsPrf := extAls.AsAttributeProfile()
+	if len(alsPrf.Attributes) != 0 {
+		for _, attr := range alsPrf.Attributes {
+			for _, sub := range attr.Substitute {
+				if sub.Rules == "" {
+					return utils.NewErrMandatoryIeMissing("Rules")
+				}
+				if err := sub.Compile(); err != nil {
+					return utils.NewErrServerError(err)
+				}
+			}
+		}
+	}
+
 	if err := apierV1.DataManager.SetAttributeProfile(alsPrf, true); err != nil {
 		return utils.APIErrorHandler(err)
 	}
@@ -53,17 +80,16 @@ func (apierV1 *ApierV1) SetAttributeProfile(extAls *engine.ExternalAttributeProf
 }
 
 type ArgRemoveAttrProfile struct {
-	Tenant   string
-	ID       string
-	Contexts []string
+	Tenant string
+	ID     string
 }
 
-//RemAttributeProfile remove a specific Attribute Profile
-func (apierV1 *ApierV1) RemAttributeProfile(arg *ArgRemoveAttrProfile, reply *string) error {
-	if missing := utils.MissingStructFields(arg, []string{"Tenant", "ID", "Contexts"}); len(missing) != 0 { //Params missing
+//RemoveAttributeProfile remove a specific Attribute Profile
+func (apierV1 *ApierV1) RemoveAttributeProfile(arg *ArgRemoveAttrProfile, reply *string) error {
+	if missing := utils.MissingStructFields(arg, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if err := apierV1.DataManager.RemoveAttributeProfile(arg.Tenant, arg.ID, arg.Contexts, utils.NonTransactional, true); err != nil {
+	if err := apierV1.DataManager.RemoveAttributeProfile(arg.Tenant, arg.ID, utils.NonTransactional, true); err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
 		}
@@ -89,13 +115,18 @@ func (alSv1 *AttributeSv1) Call(serviceMethod string,
 }
 
 // GetAttributeForEvent  returns matching AttributeProfile for Event
-func (alSv1 *AttributeSv1) GetAttributeForEvent(ev *utils.CGREvent,
-	reply *engine.ExternalAttributeProfile) error {
-	return alSv1.attrS.V1GetAttributeForEvent(ev, reply)
+func (alSv1 *AttributeSv1) GetAttributeForEvent(args *engine.AttrArgsProcessEvent,
+	reply *engine.AttributeProfile) (err error) {
+	return alSv1.attrS.V1GetAttributeForEvent(args, reply)
 }
 
 // ProcessEvent will replace event fields with the ones in maching AttributeProfile
-func (alSv1 *AttributeSv1) ProcessEvent(ev *utils.CGREvent,
+func (alSv1 *AttributeSv1) ProcessEvent(args *engine.AttrArgsProcessEvent,
 	reply *engine.AttrSProcessEventReply) error {
-	return alSv1.attrS.V1ProcessEvent(ev, reply)
+	return alSv1.attrS.V1ProcessEvent(args, reply)
+}
+
+func (alSv1 *AttributeSv1) Ping(ign string, reply *string) error {
+	*reply = utils.Pong
+	return nil
 }

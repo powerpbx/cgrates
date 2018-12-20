@@ -30,12 +30,13 @@ import (
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/utils"
 )
 
 var flatstoreCfgPath string
 var flatstoreCfg *config.CGRConfig
 var flatstoreRpc *rpc.Client
-var flatstoreCdrcCfg *config.CdrcConfig
+var flatstoreCdrcCfg *config.CdrcCfg
 
 var fullSuccessfull = `INVITE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9e@0:0:0:0:0:0:0:0|200|OK|1436454408|*prepaid|1001|1002||3401:2069362475
 BYE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9e@0:0:0:0:0:0:0:0|200|OK|1436454410|||||3401:2069362475
@@ -55,7 +56,7 @@ var part1 = `BYE|f9d3d5c3|c863a6e3|214d8f52b566e33a9349b184e72a4ccb@0:0:0:0:0:0:
 `
 
 var part2 = `INVITE|f9d3d5c3|c863a6e3|214d8f52b566e33a9349b184e72a4ccb@0:0:0:0:0:0:0:0|200|OK|1436454647|*postpaid|1002|1003||1877:893549742
-INVITE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9e@0:0:0:0:0:0:0:0|200|OK|1436454408|*prepaid|1001|1002||3401:2069362475`
+INVITE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9p@0:0:0:0:0:0:0:0|200|OK|1436454408|*prepaid|1001|1002||3401:2069362475`
 
 func TestFlatstoreitInitCfg(t *testing.T) {
 	var err error
@@ -68,6 +69,13 @@ func TestFlatstoreitInitCfg(t *testing.T) {
 // InitDb so we can rely on count
 func TestFlatstoreitInitCdrDb(t *testing.T) {
 	if err := engine.InitStorDb(flatstoreCfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Remove data in both rating and accounting db
+func TestFlatstoreitResetDataDb(t *testing.T) {
+	if err := engine.InitDataDb(flatstoreCfg); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -105,7 +113,7 @@ func TestFlatstoreitStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func TestFlatstoreitRpcConn(t *testing.T) {
 	var err error
-	flatstoreRpc, err = jsonrpc.Dial("tcp", flatstoreCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	flatstoreRpc, err = jsonrpc.Dial("tcp", flatstoreCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
@@ -113,16 +121,16 @@ func TestFlatstoreitRpcConn(t *testing.T) {
 
 func TestFlatstoreitProcessFiles(t *testing.T) {
 	if err := ioutil.WriteFile(path.Join("/tmp", "acc_1.log"), []byte(fullSuccessfull), 0644); err != nil {
-		t.Fatal(err.Error)
+		t.Fatal(err.Error())
 	}
 	if err := ioutil.WriteFile(path.Join("/tmp", "missed_calls_1.log"), []byte(fullMissed), 0644); err != nil {
-		t.Fatal(err.Error)
+		t.Fatal(err.Error())
 	}
 	if err := ioutil.WriteFile(path.Join("/tmp", "acc_2.log"), []byte(part1), 0644); err != nil {
-		t.Fatal(err.Error)
+		t.Fatal(err.Error())
 	}
 	if err := ioutil.WriteFile(path.Join("/tmp", "acc_3.log"), []byte(part2), 0644); err != nil {
-		t.Fatal(err.Error)
+		t.Fatal(err.Error())
 	}
 	//Rename(oldpath, newpath string)
 	for _, fileName := range []string{"acc_1.log", "missed_calls_1.log", "acc_2.log", "acc_3.log"} {
@@ -137,12 +145,44 @@ func TestFlatstoreitProcessFiles(t *testing.T) {
 	}
 	filesOutDir, _ := ioutil.ReadDir(flatstoreCdrcCfg.CdrOutDir)
 	if len(filesOutDir) != 5 {
-		t.Errorf("In CdrcOutDir, expecting 5 files, got: %d", len(filesOutDir))
+		f := []string{}
+		for _, s := range filesOutDir {
+			f = append(f, s.Name())
+			t.Errorf("File %s:", s.Name())
+			if partContent, err := ioutil.ReadFile(path.Join(flatstoreCdrcCfg.CdrOutDir, s.Name())); err != nil {
+				t.Error(err)
+			} else {
+				t.Errorf("%s", partContent)
+			}
+			t.Errorf("==============================================================================")
+		}
+		t.Errorf("In CdrcOutDir, expecting 5 files, got: %d, for %s", len(filesOutDir), utils.ToJSON(f))
+		return
 	}
-	ePartContent := "INVITE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9e@0:0:0:0:0:0:0:0|200|OK|1436454408|*prepaid|1001|1002||3401:2069362475\n"
+	ePartContent := "INVITE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9p@0:0:0:0:0:0:0:0|200|OK|1436454408|*prepaid|1001|1002||3401:2069362475\n"
 	if partContent, err := ioutil.ReadFile(path.Join(flatstoreCdrcCfg.CdrOutDir, "acc_3.log.unpaired")); err != nil {
 		t.Error(err)
-	} else if len(ePartContent) != len(string(partContent)) {
+	} else if (ePartContent) != (string(partContent)) {
 		t.Errorf("Expecting:\n%s\nReceived:\n%s", ePartContent, string(partContent))
+	}
+}
+
+func TestFlatstoreitAnalyseCDRs(t *testing.T) {
+	var reply []*engine.ExternalCDR
+	if err := flatstoreRpc.Call("ApierV2.GetCdrs", utils.RPCCDRsFilter{}, &reply); err != nil {
+		t.Error("Unexpected error: ", err.Error())
+	} else if len(reply) != 13 {
+		t.Error("Unexpected number of CDRs returned: ", len(reply))
+	}
+	if err := flatstoreRpc.Call("ApierV2.GetCdrs", utils.RPCCDRsFilter{MinUsage: "1"}, &reply); err != nil {
+		t.Error("Unexpected error: ", err.Error())
+	} else if len(reply) != 7 {
+		t.Error("Unexpected number of CDRs returned: ", len(reply))
+	}
+}
+
+func TestFlatstoreitKillEngine(t *testing.T) {
+	if err := engine.KillEngine(*waitRater); err != nil {
+		t.Error(err)
 	}
 }

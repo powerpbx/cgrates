@@ -22,7 +22,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cgrates/cgrates/sessionmanager"
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -329,210 +330,121 @@ func TestSMAEventExtraParameters(t *testing.T) {
 	}
 }
 
-/*
-func TestSMAEventUpdateFromEvent(t *testing.T) {
+func TestSMAEventV1AuthorizeArgs(t *testing.T) {
+	timezone := config.CgrConfig().GeneralCfg().DefaultTimezone
 	var ev map[string]interface{}
 	if err := json.Unmarshal([]byte(stasisStart), &ev); err != nil {
 		t.Error(err)
 	}
 	smaEv := NewSMAsteriskEvent(ev, "127.0.0.1")
-	ev = make(map[string]interface{})
-	if err := json.Unmarshal([]byte(channelAnsweredDestroyed), &ev); err != nil {
+	cgrEv, err := smaEv.AsCGREvent(timezone)
+	if err != nil {
 		t.Error(err)
 	}
-	smaEv2 := NewSMAsteriskEvent(ev, "127.0.0.1")
-	smaEv.UpdateFromEvent(smaEv2)
-	eSMAEv := &SMAsteriskEvent{
-		ariEv: map[string]interface{}{
-			"type":        "ChannelDestroyed",
-			"args":        []interface{}{"cgr_reqtype=*prepaid", "cgr_destination=1003", "extra1=val1", "extra2=val2"},
-			"timestamp":   "2016-09-12T13:54:27.335+0200",
-			"application": "cgrates_auth",
-			"cause_txt":   "Normal Clearing",
-			"channel": map[string]interface{}{
-				"id":    "1473681228.6",
-				"state": "Up",
-				"name":  "PJSIP/1001-00000004",
-				"caller": map[string]interface{}{
-					"name":   "1001",
-					"number": "1001"},
-				"language": "en",
-				"connected": map[string]interface{}{
-					"name":   "",
-					"number": "1002"},
-				"accountcode": "",
-				"dialplan": map[string]interface{}{
-					"context":  "internal",
-					"exten":    "1002",
-					"priority": 3.0},
-				"creationtime": "2016-09-12T13:53:48.918+0200"},
-			"cause": 16.0},
-		asteriskIP: "127.0.0.1",
-		cachedFields: map[string]string{"cgr_reqtype": "*prepaid",
-			"cgr_destination": "1003", "extra1": "val1", "extra2": "val2"},
+	exp := &sessions.V1AuthorizeArgs{
+		GetMaxUsage: true,
+		CGREvent:    *cgrEv,
 	}
-	if !reflect.DeepEqual(eSMAEv, smaEv) {
-		t.Errorf("Expecting: %+v, received: %+v", eSMAEv, smaEv)
+	if rcv := smaEv.V1AuthorizeArgs(); !reflect.DeepEqual(exp.GetMaxUsage, rcv.GetMaxUsage) {
+		t.Errorf("Expecting: %+v, received: %+v", exp.GetMaxUsage, rcv.GetMaxUsage)
+	}
+
+	stasisStart2 := `{"type":"StasisStart","timestamp":"2018-11-25T05:03:26.464-0500","args":["cgr_reqtype=*prepaid","cgr_supplier=supplier1","cgr_subsystems=*accounts*attributes*resources*stats*suppliers*thresholds"],"channel":{"id":"1543140206.0","dialplan":{"context":"internal","exten":"1002","priority":4},"caller":{"name":"","number":"1001"},"name":"PJSIP/1001-00000000","state":"Ring","connected":{"name":"","number":""},"language":"en","accountcode":"","creationtime":"2018-11-25T05:03:26.463-0500"},"asterisk_id":"08:00:27:b7:b8:1f","application":"cgrates_auth"}`
+	var ev2 map[string]interface{}
+	if err := json.Unmarshal([]byte(stasisStart2), &ev2); err != nil {
+		t.Error(err)
+	}
+	smaEv2 := NewSMAsteriskEvent(ev2, "127.0.0.1")
+	smaEv2.parseStasisArgs()
+	cgrEv2, err := smaEv2.AsCGREvent(timezone)
+	if err != nil {
+		t.Error(err)
+	}
+
+	exp2 := &sessions.V1AuthorizeArgs{
+		GetAttributes:      true,
+		AuthorizeResources: true,
+		GetMaxUsage:        true,
+		ProcessThresholds:  true,
+		ProcessStats:       true,
+		GetSuppliers:       true,
+		CGREvent:           *cgrEv2,
+	}
+	if rcv := smaEv2.V1AuthorizeArgs(); !reflect.DeepEqual(exp2.GetAttributes, rcv.GetAttributes) {
+		t.Errorf("Expecting: %+v, received: %+v", exp2.GetAttributes, rcv.GetAttributes)
+	} else if !reflect.DeepEqual(exp2.AuthorizeResources, rcv.AuthorizeResources) {
+		t.Errorf("Expecting: %+v, received: %+v", exp2.AuthorizeResources, rcv.AuthorizeResources)
+	} else if !reflect.DeepEqual(exp2.GetMaxUsage, rcv.GetMaxUsage) {
+		t.Errorf("Expecting: %+v, received: %+v", exp2.GetMaxUsage, rcv.GetMaxUsage)
+	} else if !reflect.DeepEqual(exp2.ProcessThresholds, rcv.ProcessThresholds) {
+		t.Errorf("Expecting: %+v, received: %+v", exp2.ProcessThresholds, rcv.ProcessThresholds)
+	} else if !reflect.DeepEqual(exp2.ProcessStats, rcv.ProcessStats) {
+		t.Errorf("Expecting: %+v, received: %+v", exp2.ProcessStats, rcv.ProcessStats)
 	}
 }
-*/
 
-func TestSMAEventAsSMGenericEvent(t *testing.T) {
+func TestSMAEventV1InitSessionArgs(t *testing.T) {
+	cgrEv := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "AsteriskEvent",
+		Event: map[string]interface{}{
+			"MissingCGRSubsustems": "",
+		},
+	}
+	exp := &sessions.V1InitSessionArgs{
+		InitSession: true,
+		CGREvent:    cgrEv,
+	}
 	var ev map[string]interface{}
 	if err := json.Unmarshal([]byte(stasisStart), &ev); err != nil {
 		t.Error(err)
 	}
-	eSMGEv := &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:  SMAAuthorization,
-		utils.OriginID:    "1473681228.6",
-		utils.RequestType: "*prepaid",
-		utils.OriginHost:  "127.0.0.1",
-		utils.Account:     "1001",
-		utils.Destination: "1002",
-		utils.SetupTime:   "2016-09-12T13:53:48.919+0200",
-		utils.SUPPLIER:    "supplier1",
-		"extra1":          "val1",
-		"extra2":          "val2",
-	}
 	smaEv := NewSMAsteriskEvent(ev, "127.0.0.1")
-	if smgEv := smaEv.AsSMGenericEvent(); !reflect.DeepEqual(eSMGEv, smgEv) {
-		t.Errorf("Expecting: %+v, received: %+v", eSMGEv, smgEv)
+	if rcv := smaEv.V1InitSessionArgs(cgrEv); !reflect.DeepEqual(exp, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(exp), utils.ToJSON(rcv))
+	}
+
+	exp2 := &sessions.V1InitSessionArgs{
+		GetAttributes:     true,
+		AllocateResources: true,
+		InitSession:       true,
+		CGREvent:          cgrEv,
+	}
+	cgrEv.Event[utils.CGRSubsystems] = "*resources*accounts*attributes"
+	if rcv := smaEv.V1InitSessionArgs(cgrEv); !reflect.DeepEqual(exp2, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(exp2), utils.ToJSON(rcv))
 	}
 }
 
-func TestSMAEventUpdateSMGEventAnswered(t *testing.T) {
+func TestSMAEventV1TerminateSessionArgs(t *testing.T) {
+	cgrEv := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "AsteriskEvent",
+		Event: map[string]interface{}{
+			"MissingCGRSubsustems": "",
+		},
+	}
+	exp := &sessions.V1TerminateSessionArgs{
+		TerminateSession: true,
+		CGREvent:         cgrEv,
+	}
 	var ev map[string]interface{}
-	if err := json.Unmarshal([]byte(channelStateChange), &ev); err != nil {
+	if err := json.Unmarshal([]byte(stasisStart), &ev); err != nil {
 		t.Error(err)
 	}
 	smaEv := NewSMAsteriskEvent(ev, "127.0.0.1")
-	smgEv := &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:  SMAAuthorization,
-		utils.OriginID:    "1473681228.6",
-		utils.RequestType: "*prepaid",
-		utils.OriginHost:  "127.0.0.1",
-		utils.Account:     "1001",
-		utils.Destination: "1003",
-		utils.SetupTime:   "2016-09-12T13:53:48.919+0200",
-		"extra1":          "val1",
-		"extra2":          "val2",
+	if rcv := smaEv.V1TerminateSessionArgs(cgrEv); !reflect.DeepEqual(exp, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(exp), utils.ToJSON(rcv))
 	}
-	eSMGEv := &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:  SMASessionStart,
-		utils.OriginID:    "1473681228.6",
-		utils.RequestType: "*prepaid",
-		utils.OriginHost:  "127.0.0.1",
-		utils.Account:     "1001",
-		utils.Destination: "1003",
-		utils.SetupTime:   "2016-09-12T13:53:48.919+0200",
-		utils.AnswerTime:  "2016-09-12T13:53:52.110+0200",
-		"extra1":          "val1",
-		"extra2":          "val2",
-	}
-	if err := smaEv.UpdateSMGEvent(smgEv); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(eSMGEv, smgEv) {
-		t.Errorf("Expecting: %+v, received: %+v", eSMGEv, smgEv)
-	}
-	// Apply update using a terminate event
-	ev = make(map[string]interface{})
-	if err = json.Unmarshal([]byte(channelAnsweredDestroyed), &ev); err != nil {
-		t.Error(err)
-	}
-	smaEv = NewSMAsteriskEvent(ev, "127.0.0.1")
-	eSMGEv = &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:       SMASessionTerminate,
-		utils.OriginID:         "1473681228.6",
-		utils.RequestType:      "*prepaid",
-		utils.OriginHost:       "127.0.0.1",
-		utils.Account:          "1001",
-		utils.Destination:      "1003",
-		utils.SetupTime:        "2016-09-12T13:53:48.919+0200",
-		utils.AnswerTime:       "2016-09-12T13:53:52.110+0200",
-		utils.Usage:            "35.225s",
-		utils.DISCONNECT_CAUSE: "Normal Clearing",
-		"extra1":               "val1",
-		"extra2":               "val2",
-	}
-	if err := smaEv.UpdateSMGEvent(smgEv); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(eSMGEv, smgEv) {
-		t.Errorf("Expecting: %+v, received: %+v", eSMGEv, smgEv)
-	}
-}
 
-func TestSMAEventUpdateSMGEventUnaswered(t *testing.T) {
-	smgEv := &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:  SMAAuthorization,
-		utils.OriginID:    "1473681228.6",
-		utils.RequestType: "*prepaid",
-		utils.OriginHost:  "127.0.0.1",
-		utils.Account:     "1001",
-		utils.Destination: "1003",
-		utils.SetupTime:   "2016-09-12T13:53:48.919+0200",
-		"extra1":          "val1",
-		"extra2":          "val2",
+	exp2 := &sessions.V1TerminateSessionArgs{
+		TerminateSession: true,
+		ReleaseResources: true,
+		ProcessStats:     true,
+		CGREvent:         cgrEv,
 	}
-	eSMGEv := &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:       SMASessionTerminate,
-		utils.OriginID:         "1473681228.6",
-		utils.RequestType:      "*prepaid",
-		utils.OriginHost:       "127.0.0.1",
-		utils.Account:          "1001",
-		utils.Destination:      "1003",
-		utils.SetupTime:        "2016-09-12T13:53:48.919+0200",
-		utils.Usage:            "0s",
-		utils.DISCONNECT_CAUSE: "Normal Clearing",
-		"extra1":               "val1",
-		"extra2":               "val2",
-	}
-	// Apply update using a terminate event
-	ev := make(map[string]interface{})
-	if err := json.Unmarshal([]byte(channelUnansweredDestroyed), &ev); err != nil {
-		t.Error(err)
-	}
-	smaEv := NewSMAsteriskEvent(ev, "127.0.0.1")
-	if err := smaEv.UpdateSMGEvent(smgEv); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(eSMGEv, smgEv) {
-		t.Errorf("Expecting: %+v, received: %+v", eSMGEv, smgEv)
-	}
-}
-
-func TestSMAEventUpdateSMGEventBusy(t *testing.T) {
-	smgEv := &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:  SMAAuthorization,
-		utils.OriginID:    "1473681228.6",
-		utils.RequestType: "*prepaid",
-		utils.OriginHost:  "127.0.0.1",
-		utils.Account:     "1001",
-		utils.Destination: "1003",
-		utils.SetupTime:   "2016-09-12T13:53:48.919+0200",
-		"extra1":          "val1",
-		"extra2":          "val2",
-	}
-	eSMGEv := &sessionmanager.SMGenericEvent{
-		utils.EVENT_NAME:       SMASessionTerminate,
-		utils.OriginID:         "1473681228.6",
-		utils.RequestType:      "*prepaid",
-		utils.OriginHost:       "127.0.0.1",
-		utils.Account:          "1001",
-		utils.Destination:      "1003",
-		utils.SetupTime:        "2016-09-12T13:53:48.919+0200",
-		utils.Usage:            "0s",
-		utils.DISCONNECT_CAUSE: "User busy",
-		"extra1":               "val1",
-		"extra2":               "val2",
-	}
-	// Apply update using a terminate event
-	ev := make(map[string]interface{})
-	if err := json.Unmarshal([]byte(channelBusyDestroyed), &ev); err != nil {
-		t.Error(err)
-	}
-	smaEv := NewSMAsteriskEvent(ev, "127.0.0.1")
-	if err := smaEv.UpdateSMGEvent(smgEv); err != nil {
-		t.Error(err)
-	} else if !reflect.DeepEqual(eSMGEv, smgEv) {
-		t.Errorf("Expecting: %+v, received: %+v", eSMGEv, smgEv)
+	cgrEv.Event[utils.CGRSubsystems] = "*resources*accounts*stats"
+	if rcv := smaEv.V1TerminateSessionArgs(cgrEv); !reflect.DeepEqual(exp2, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", utils.ToJSON(exp2), utils.ToJSON(rcv))
 	}
 }

@@ -21,7 +21,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cgrates/cgrates/cache"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -42,7 +41,6 @@ func TestAcntActsLoadCsv(t *testing.T) {
 	ratingPlans := ``
 	ratingProfiles := ``
 	sharedGroups := ``
-	lcrs := ``
 	actions := `TOPUP10_AC,*topup_reset,,,,*voice,*out,,*any,,,*unlimited,,10s,10,false,false,10
 DISABLE_ACNT,*disable_account,,,,,,,,,,,,,,false,false,10
 ENABLE_ACNT,*enable_account,,,,,,,,,,,,,,false,false,10`
@@ -50,7 +48,6 @@ ENABLE_ACNT,*enable_account,,,,,,,,,,,,,,false,false,10`
 	actionTriggers := ``
 	accountActions := `cgrates.org,1,TOPUP10_AT,,,`
 	derivedCharges := ``
-	cdrStats := ``
 	users := ``
 	aliases := ``
 	resLimits := ``
@@ -59,17 +56,20 @@ ENABLE_ACNT,*enable_account,,,,,,,,,,,,,,false,false,10`
 	filters := ``
 	suppliers := ``
 	aliasProfiles := ``
+	chargerProfiles := ``
 	csvr := engine.NewTpReader(dbAcntActs.DataDB(), engine.NewStringCSVStorage(',', destinations, timings,
-		rates, destinationRates, ratingPlans, ratingProfiles, sharedGroups, lcrs,
-		actions, actionPlans, actionTriggers, accountActions, derivedCharges, cdrStats,
-		users, aliases, resLimits, stats, thresholds, filters, suppliers, aliasProfiles), "", "")
+		rates, destinationRates, ratingPlans, ratingProfiles, sharedGroups,
+		actions, actionPlans, actionTriggers, accountActions, derivedCharges,
+		users, aliases, resLimits, stats, thresholds, filters, suppliers, aliasProfiles, chargerProfiles), "", "")
 	if err := csvr.LoadAll(); err != nil {
 		t.Fatal(err)
 	}
 	csvr.WriteToDatabase(false, false, false)
 
-	cache.Flush()
-	dbAcntActs.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	engine.Cache.Clear(nil)
+	dbAcntActs.LoadDataDBCache(nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	expectAcnt := &engine.Account{ID: "cgrates.org:1"}
 	if acnt, err := dbAcntActs.DataDB().GetAccount("cgrates.org:1"); err != nil {

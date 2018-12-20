@@ -27,10 +27,154 @@ import (
 )
 
 var (
-	splserv   SupplierService
-	argPagEv  *ArgsGetSuppliers
-	dmspl     *DataManager
-	sprsmatch SupplierProfiles
+	cloneExpTimeSuppliers time.Time
+	expTimeSuppliers      = time.Now().Add(time.Duration(20 * time.Minute))
+	splService            *SupplierService
+	dmSPP                 *DataManager
+	sppTest               = SupplierProfiles{
+		&SupplierProfile{
+			Tenant:    "cgrates.org",
+			ID:        "SupplierProfile1",
+			FilterIDs: []string{"FLTR_SUPP_1"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+				ExpiryTime:     cloneExpTimeSuppliers,
+			},
+			Sorting:           utils.MetaWeight,
+			SortingParameters: []string{},
+			Suppliers: []*Supplier{
+				{
+					ID:                 "supplier1",
+					FilterIDs:          []string{},
+					AccountIDs:         []string{},
+					RatingPlanIDs:      []string{},
+					ResourceIDs:        []string{},
+					StatIDs:            []string{},
+					Weight:             10.0,
+					Blocker:            false,
+					SupplierParameters: "param1",
+				},
+			},
+			Weight: 10,
+		},
+		&SupplierProfile{
+			Tenant:    "cgrates.org",
+			ID:        "SupplierProfile2",
+			FilterIDs: []string{"FLTR_SUPP_2"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+				ExpiryTime:     cloneExpTimeSuppliers,
+			},
+			Sorting:           utils.MetaWeight,
+			SortingParameters: []string{},
+			Suppliers: []*Supplier{
+				{
+					ID:                 "supplier2",
+					FilterIDs:          []string{},
+					AccountIDs:         []string{},
+					RatingPlanIDs:      []string{},
+					ResourceIDs:        []string{},
+					StatIDs:            []string{},
+					Weight:             20.0,
+					SupplierParameters: "param2",
+				},
+				{
+					ID:                 "supplier3",
+					FilterIDs:          []string{},
+					AccountIDs:         []string{},
+					RatingPlanIDs:      []string{},
+					ResourceIDs:        []string{},
+					StatIDs:            []string{},
+					Weight:             10.0,
+					SupplierParameters: "param3",
+				},
+				{
+					ID:                 "supplier1",
+					FilterIDs:          []string{},
+					AccountIDs:         []string{},
+					RatingPlanIDs:      []string{},
+					ResourceIDs:        []string{},
+					StatIDs:            []string{},
+					Weight:             30.0,
+					Blocker:            false,
+					SupplierParameters: "param1",
+				},
+			},
+			Weight: 20.0,
+		},
+		&SupplierProfile{
+			Tenant:    "cgrates.org",
+			ID:        "SupplierProfilePrefix",
+			FilterIDs: []string{"FLTR_SUPP_3"},
+			ActivationInterval: &utils.ActivationInterval{
+				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+				ExpiryTime:     cloneExpTimeSuppliers,
+			},
+			Sorting:           utils.MetaWeight,
+			SortingParameters: []string{},
+			Suppliers: []*Supplier{
+				{
+					ID:                 "supplier1",
+					FilterIDs:          []string{},
+					AccountIDs:         []string{},
+					RatingPlanIDs:      []string{},
+					ResourceIDs:        []string{},
+					StatIDs:            []string{},
+					Weight:             10.0,
+					Blocker:            false,
+					SupplierParameters: "param1",
+				},
+			},
+			Weight: 10,
+		},
+	}
+	argsGetSuppliers = []*ArgsGetSuppliers{
+		{ //matching SupplierProfile1
+			CGREvent: utils.CGREvent{
+				Tenant: "cgrates.org",
+				ID:     "utils.CGREvent1",
+				Event: map[string]interface{}{
+					"Supplier":       "SupplierProfile1",
+					utils.AnswerTime: time.Date(2014, 7, 14, 14, 30, 0, 0, time.UTC),
+					"UsageInterval":  "1s",
+					"PddInterval":    "1s",
+					"Weight":         "20.0",
+				},
+			},
+		},
+		{ //matching SupplierProfile2
+			CGREvent: utils.CGREvent{
+				Tenant: "cgrates.org",
+				ID:     "utils.CGREvent1",
+				Event: map[string]interface{}{
+					"Supplier":       "SupplierProfile2",
+					utils.AnswerTime: time.Date(2014, 7, 14, 14, 30, 0, 0, time.UTC),
+					"UsageInterval":  "1s",
+					"PddInterval":    "1s",
+					"Weight":         "20.0",
+				},
+			},
+		},
+		{ //matching SupplierProfilePrefix
+			CGREvent: utils.CGREvent{
+				Tenant: "cgrates.org",
+				ID:     "utils.CGREvent1",
+				Event: map[string]interface{}{
+					"Supplier": "SupplierProfilePrefix",
+				},
+			},
+		},
+		{ //matching
+			CGREvent: utils.CGREvent{
+				Tenant: "cgrates.org",
+				ID:     "CGR",
+				Event: map[string]interface{}{
+					"UsageInterval": "1s",
+					"PddInterval":   "1s",
+				},
+			},
+		},
+	}
 )
 
 func TestSuppliersSort(t *testing.T) {
@@ -43,10 +187,10 @@ func TestSuppliersSort(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 				ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
-			Sorting:       "",
-			SortingParams: []string{},
+			Sorting:           "",
+			SortingParameters: []string{},
 			Suppliers: []*Supplier{
-				&Supplier{
+				{
 					ID:                 "supplier1",
 					FilterIDs:          []string{},
 					AccountIDs:         []string{},
@@ -54,11 +198,11 @@ func TestSuppliersSort(t *testing.T) {
 					ResourceIDs:        []string{},
 					StatIDs:            []string{},
 					Weight:             10.0,
+					Blocker:            false,
 					SupplierParameters: "param1",
 				},
 			},
-			Blocker: false,
-			Weight:  10,
+			Weight: 10,
 		},
 		&SupplierProfile{
 			Tenant:    "cgrates.org",
@@ -68,10 +212,10 @@ func TestSuppliersSort(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 				ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
-			Sorting:       "",
-			SortingParams: []string{},
+			Sorting:           "",
+			SortingParameters: []string{},
 			Suppliers: []*Supplier{
-				&Supplier{
+				{
 					ID:                 "supplier1",
 					FilterIDs:          []string{},
 					AccountIDs:         []string{},
@@ -79,11 +223,11 @@ func TestSuppliersSort(t *testing.T) {
 					ResourceIDs:        []string{},
 					StatIDs:            []string{},
 					Weight:             20.0,
+					Blocker:            false,
 					SupplierParameters: "param1",
 				},
 			},
-			Blocker: false,
-			Weight:  20.0,
+			Weight: 20.0,
 		},
 	}
 	eSupplierProfile := SupplierProfiles{
@@ -95,10 +239,10 @@ func TestSuppliersSort(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 				ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
-			Sorting:       "",
-			SortingParams: []string{},
+			Sorting:           "",
+			SortingParameters: []string{},
 			Suppliers: []*Supplier{
-				&Supplier{
+				{
 					ID:                 "supplier1",
 					FilterIDs:          []string{},
 					AccountIDs:         []string{},
@@ -106,11 +250,11 @@ func TestSuppliersSort(t *testing.T) {
 					ResourceIDs:        []string{},
 					StatIDs:            []string{},
 					Weight:             20.0,
+					Blocker:            false,
 					SupplierParameters: "param1",
 				},
 			},
-			Blocker: false,
-			Weight:  20.0,
+			Weight: 20.0,
 		},
 		&SupplierProfile{
 			Tenant:    "cgrates.org",
@@ -120,10 +264,10 @@ func TestSuppliersSort(t *testing.T) {
 				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 				ExpiryTime:     time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
 			},
-			Sorting:       "",
-			SortingParams: []string{},
+			Sorting:           "",
+			SortingParameters: []string{},
 			Suppliers: []*Supplier{
-				&Supplier{
+				{
 					ID:                 "supplier1",
 					FilterIDs:          []string{},
 					AccountIDs:         []string{},
@@ -131,11 +275,11 @@ func TestSuppliersSort(t *testing.T) {
 					ResourceIDs:        []string{},
 					StatIDs:            []string{},
 					Weight:             10.0,
+					Blocker:            false,
 					SupplierParameters: "param1",
 				},
 			},
-			Blocker: false,
-			Weight:  10.0,
+			Weight: 10.0,
 		},
 	}
 	sprs.Sort()
@@ -145,191 +289,169 @@ func TestSuppliersSort(t *testing.T) {
 }
 
 func TestSuppliersPopulateSupplierService(t *testing.T) {
-	data, _ := NewMapStorage()
-	dmspl = NewDataManager(data)
-	var filters1 []*RequestFilter
-	var filters2 []*RequestFilter
-	second := 1 * time.Second
-	x, err := NewRequestFilter(MetaString, "supplierprofile1", []string{"Supplier"})
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	filters1 = append(filters1, x)
-	x, err = NewRequestFilter(MetaGreaterOrEqual, "UsageInterval", []string{second.String()})
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	filters1 = append(filters1, x)
-	x, err = NewRequestFilter(MetaGreaterOrEqual, "Weight", []string{"9.0"})
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	filters1 = append(filters1, x)
-	x, err = NewRequestFilter(MetaString, "supplierprofile2", []string{"Supplier"})
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	filters2 = append(filters2, x)
-	x, err = NewRequestFilter(MetaGreaterOrEqual, "PddInterval", []string{second.String()})
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	filters2 = append(filters2, x)
-	x, err = NewRequestFilter(MetaGreaterOrEqual, "Weight", []string{"15.0"})
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	filters2 = append(filters2, x)
-	filter3 := &Filter{Tenant: config.CgrConfig().DefaultTenant, ID: "filter3", RequestFilters: filters1}
-	filter4 := &Filter{Tenant: config.CgrConfig().DefaultTenant, ID: "filter4", RequestFilters: filters2}
-	dmspl.SetFilter(filter3)
-	dmspl.SetFilter(filter4)
-	ssd := make(map[string]SuppliersSorter)
-	ssd[utils.MetaWeight] = NewWeightSorter()
-	splserv = SupplierService{
-		dm:                  dmspl,
-		filterS:             &FilterS{dm: dmspl},
-		stringIndexedFields: &[]string{"supplierprofile1", "supplierprofile2"},
-		sorter:              ssd,
-	}
-	ssd[utils.MetaLeastCost] = NewLeastCostSorter(&splserv)
-
-	argPagEv = &ArgsGetSuppliers{
-		CGREvent: utils.CGREvent{
-			Tenant: "cgrates.org",
-			ID:     "utils.CGREvent1",
-			Event: map[string]interface{}{
-				"supplierprofile1": "Supplier",
-				"supplierprofile2": "Supplier",
-				utils.AnswerTime:   time.Date(2014, 7, 14, 14, 30, 0, 0, time.UTC),
-				"UsageInterval":    "1s",
-				"PddInterval":      "1s",
-				"Weight":           "20.0",
-			},
-		},
-	}
-	var cloneExpTime time.Time
-	expTime := time.Now().Add(time.Duration(20 * time.Minute))
-	if err := utils.Clone(expTime, &cloneExpTime); err != nil {
+	//Need clone because time.Now adds extra information that DeepEqual doesn't like
+	if err := utils.Clone(expTimeSuppliers, &cloneExpTimeSuppliers); err != nil {
 		t.Error(err)
 	}
-	sprsmatch = SupplierProfiles{
-		&SupplierProfile{
-			Tenant:    "cgrates.org",
-			ID:        "supplierprofile1",
-			FilterIDs: []string{"filter3"},
-			ActivationInterval: &utils.ActivationInterval{
-				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				ExpiryTime:     cloneExpTime,
-			},
-			Sorting:       utils.MetaWeight,
-			SortingParams: []string{},
-			Suppliers: []*Supplier{
-				&Supplier{
-					ID:                 "supplier1",
-					FilterIDs:          []string{"filter3"},
-					AccountIDs:         []string{},
-					RatingPlanIDs:      []string{},
-					ResourceIDs:        []string{},
-					StatIDs:            []string{},
-					Weight:             10.0,
-					SupplierParameters: "param1",
-				},
-			},
-			Blocker: false,
-			Weight:  10,
-		},
-		&SupplierProfile{
-			Tenant:    "cgrates.org",
-			ID:        "supplierprofile2",
-			FilterIDs: []string{"filter4"},
-			ActivationInterval: &utils.ActivationInterval{
-				ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
-				ExpiryTime:     cloneExpTime,
-			},
-			Sorting:       utils.MetaWeight,
-			SortingParams: []string{},
-			Suppliers: []*Supplier{
-				&Supplier{
-					ID:                 "supplier2",
-					FilterIDs:          []string{"filter4"},
-					AccountIDs:         []string{},
-					RatingPlanIDs:      []string{},
-					ResourceIDs:        []string{},
-					StatIDs:            []string{},
-					Weight:             20.0,
-					SupplierParameters: "param2",
-				},
-				&Supplier{
-					ID:                 "supplier3",
-					FilterIDs:          []string{"filter4"},
-					AccountIDs:         []string{},
-					RatingPlanIDs:      []string{},
-					ResourceIDs:        []string{},
-					StatIDs:            []string{},
-					Weight:             10.0,
-					SupplierParameters: "param3",
-				},
-				&Supplier{
-					ID:                 "supplier1",
-					FilterIDs:          []string{"filter4"},
-					AccountIDs:         []string{},
-					RatingPlanIDs:      []string{},
-					ResourceIDs:        []string{},
-					StatIDs:            []string{},
-					Weight:             30.0,
-					SupplierParameters: "param1",
-				},
-			},
-			Blocker: false,
-			Weight:  20.0,
-		},
+	data, _ := NewMapStorage()
+	dmSPP = NewDataManager(data)
+	defaultCfg, err := config.NewDefaultCGRConfig()
+	if err != nil {
+		t.Errorf("Error: %+v", err)
 	}
 
-	for _, spr := range sprsmatch {
-		dmspl.SetSupplierProfile(spr, true)
-	}
-	ref := NewReqFilterIndexer(dmspl, utils.SupplierProfilePrefix, "cgrates.org")
-	ref.IndexTPFilter(FilterToTPFilter(filter3), "supplierprofile1")
-	ref.IndexTPFilter(FilterToTPFilter(filter4), "supplierprofile2")
-	err = ref.StoreIndexes()
+	splService, err = NewSupplierService(dmSPP,
+		config.CgrConfig().GeneralCfg().DefaultTimezone, &FilterS{
+			dm:  dmSPP,
+			cfg: defaultCfg}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
 }
 
+func TestSuppliersAddFilters(t *testing.T) {
+	fltrSupp1 := &Filter{
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+		ID:     "FLTR_SUPP_1",
+		Rules: []*FilterRule{
+			{
+				Type:      MetaString,
+				FieldName: "Supplier",
+				Values:    []string{"SupplierProfile1"},
+			},
+			{
+				Type:      MetaGreaterOrEqual,
+				FieldName: "UsageInterval",
+				Values:    []string{(1 * time.Second).String()},
+			},
+			{
+				Type:      MetaGreaterOrEqual,
+				FieldName: utils.Weight,
+				Values:    []string{"9.0"},
+			},
+		},
+	}
+	dmSPP.SetFilter(fltrSupp1)
+	fltrSupp2 := &Filter{
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+		ID:     "FLTR_SUPP_2",
+		Rules: []*FilterRule{
+			{
+				Type:      MetaString,
+				FieldName: "Supplier",
+				Values:    []string{"SupplierProfile2"},
+			},
+			{
+				Type:      MetaGreaterOrEqual,
+				FieldName: "PddInterval",
+				Values:    []string{(1 * time.Second).String()},
+			},
+			{
+				Type:      MetaGreaterOrEqual,
+				FieldName: utils.Weight,
+				Values:    []string{"15.0"},
+			},
+		},
+	}
+	dmSPP.SetFilter(fltrSupp2)
+	fltrSupp3 := &Filter{
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+		ID:     "FLTR_SUPP_3",
+		Rules: []*FilterRule{
+			{
+				Type:      MetaPrefix,
+				FieldName: "Supplier",
+				Values:    []string{"SupplierProfilePrefix"},
+			},
+		},
+	}
+	dmSPP.SetFilter(fltrSupp3)
+}
+
+func TestSuppliersCache(t *testing.T) {
+	for _, spp := range sppTest {
+		if err = dmSPP.SetSupplierProfile(spp, true); err != nil {
+			t.Errorf("Error: %+v", err)
+		}
+	}
+	//Test each supplier profile from cache
+	for _, spp := range sppTest {
+		if tempSpp, err := dmSPP.GetSupplierProfile(spp.Tenant,
+			spp.ID, true, true, utils.NonTransactional); err != nil {
+			t.Errorf("Error: %+v", err)
+		} else if !reflect.DeepEqual(spp, tempSpp) {
+			t.Errorf("Expecting: %+v, received: %+v", spp, tempSpp)
+		}
+	}
+}
+
 func TestSuppliersmatchingSupplierProfilesForEvent(t *testing.T) {
-	sprf, err := splserv.matchingSupplierProfilesForEvent(&argPagEv.CGREvent)
+	sprf, err := splService.matchingSupplierProfilesForEvent(&argsGetSuppliers[0].CGREvent)
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
-	if !reflect.DeepEqual(sprsmatch[1], sprf[0]) {
-		t.Errorf("Expecting: %+v, received: %+v", sprsmatch[1], sprf[0])
-	} else if !reflect.DeepEqual(sprsmatch[0], sprf[1]) {
-		t.Errorf("Expecting: %+v, received: %+v", sprsmatch[0], sprf[1])
+	if !reflect.DeepEqual(sppTest[0], sprf[0]) {
+		t.Errorf("Expecting: %+v, received: %+v", sppTest[0], sprf[0])
+	}
+
+	sprf, err = splService.matchingSupplierProfilesForEvent(&argsGetSuppliers[1].CGREvent)
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(sppTest[1], sprf[0]) {
+		t.Errorf("Expecting: %+v, received: %+v", sppTest[1], sprf[0])
+	}
+
+	sprf, err = splService.matchingSupplierProfilesForEvent(&argsGetSuppliers[2].CGREvent)
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(sppTest[2], sprf[0]) {
+		t.Errorf("Expecting: %+v, received: %+v", sppTest[2], sprf[0])
 	}
 }
 
 func TestSuppliersSortedForEvent(t *testing.T) {
 	eFirstSupplierProfile := &SortedSuppliers{
-		ProfileID: "supplierprofile2",
+		ProfileID: "SupplierProfile1",
 		Sorting:   utils.MetaWeight,
 		SortedSuppliers: []*SortedSupplier{
-			&SortedSupplier{
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					"Weight": 10.0,
+				},
+				SupplierParameters: "param1",
+			},
+		},
+	}
+	sprf, err := splService.sortedSuppliersForEvent(argsGetSuppliers[0])
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(eFirstSupplierProfile, sprf) {
+		t.Errorf("Expecting: %+v, received: %+v", eFirstSupplierProfile, sprf)
+	}
+
+	eFirstSupplierProfile = &SortedSuppliers{
+		ProfileID: "SupplierProfile2",
+		Sorting:   utils.MetaWeight,
+		SortedSuppliers: []*SortedSupplier{
+			{
 				SupplierID: "supplier1",
 				SortingData: map[string]interface{}{
 					"Weight": 30.0,
 				},
 				SupplierParameters: "param1",
 			},
-			&SortedSupplier{
+			{
 				SupplierID: "supplier2",
 				SortingData: map[string]interface{}{
 					"Weight": 20.0,
 				},
 				SupplierParameters: "param2",
 			},
-			&SortedSupplier{
+			{
 				SupplierID: "supplier3",
 				SortingData: map[string]interface{}{
 					"Weight": 10.0,
@@ -338,7 +460,30 @@ func TestSuppliersSortedForEvent(t *testing.T) {
 			},
 		},
 	}
-	sprf, err := splserv.sortedSuppliersForEvent(argPagEv)
+
+	sprf, err = splService.sortedSuppliersForEvent(argsGetSuppliers[1])
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(eFirstSupplierProfile, sprf) {
+		t.Errorf("Expecting: %+v, received: %+v", eFirstSupplierProfile, sprf)
+	}
+
+	eFirstSupplierProfile = &SortedSuppliers{
+		ProfileID: "SupplierProfilePrefix",
+		Sorting:   utils.MetaWeight,
+		SortedSuppliers: []*SortedSupplier{
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					"Weight": 10.0,
+				},
+				SupplierParameters: "param1",
+			},
+		},
+	}
+
+	sprf, err = splService.sortedSuppliersForEvent(argsGetSuppliers[2])
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
@@ -349,17 +494,17 @@ func TestSuppliersSortedForEvent(t *testing.T) {
 
 func TestSuppliersSortedForEventWithLimit(t *testing.T) {
 	eFirstSupplierProfile := &SortedSuppliers{
-		ProfileID: "supplierprofile2",
+		ProfileID: "SupplierProfile2",
 		Sorting:   utils.MetaWeight,
 		SortedSuppliers: []*SortedSupplier{
-			&SortedSupplier{
+			{
 				SupplierID: "supplier1",
 				SortingData: map[string]interface{}{
 					"Weight": 30.0,
 				},
 				SupplierParameters: "param1",
 			},
-			&SortedSupplier{
+			{
 				SupplierID: "supplier2",
 				SortingData: map[string]interface{}{
 					"Weight": 20.0,
@@ -368,10 +513,10 @@ func TestSuppliersSortedForEventWithLimit(t *testing.T) {
 			},
 		},
 	}
-	argPagEv.Paginator = utils.Paginator{
+	argsGetSuppliers[1].Paginator = utils.Paginator{
 		Limit: utils.IntPointer(2),
 	}
-	sprf, err := splserv.sortedSuppliersForEvent(argPagEv)
+	sprf, err := splService.sortedSuppliersForEvent(argsGetSuppliers[1])
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
@@ -382,10 +527,10 @@ func TestSuppliersSortedForEventWithLimit(t *testing.T) {
 
 func TestSuppliersSortedForEventWithOffset(t *testing.T) {
 	eFirstSupplierProfile := &SortedSuppliers{
-		ProfileID: "supplierprofile2",
+		ProfileID: "SupplierProfile2",
 		Sorting:   utils.MetaWeight,
 		SortedSuppliers: []*SortedSupplier{
-			&SortedSupplier{
+			{
 				SupplierID: "supplier3",
 				SortingData: map[string]interface{}{
 					"Weight": 10.0,
@@ -394,10 +539,10 @@ func TestSuppliersSortedForEventWithOffset(t *testing.T) {
 			},
 		},
 	}
-	argPagEv.Paginator = utils.Paginator{
+	argsGetSuppliers[1].Paginator = utils.Paginator{
 		Offset: utils.IntPointer(2),
 	}
-	sprf, err := splserv.sortedSuppliersForEvent(argPagEv)
+	sprf, err := splService.sortedSuppliersForEvent(argsGetSuppliers[1])
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
@@ -408,10 +553,10 @@ func TestSuppliersSortedForEventWithOffset(t *testing.T) {
 
 func TestSuppliersSortedForEventWithLimitAndOffset(t *testing.T) {
 	eFirstSupplierProfile := &SortedSuppliers{
-		ProfileID: "supplierprofile2",
+		ProfileID: "SupplierProfile2",
 		Sorting:   utils.MetaWeight,
 		SortedSuppliers: []*SortedSupplier{
-			&SortedSupplier{
+			{
 				SupplierID: "supplier2",
 				SortingData: map[string]interface{}{
 					"Weight": 20.0,
@@ -420,15 +565,92 @@ func TestSuppliersSortedForEventWithLimitAndOffset(t *testing.T) {
 			},
 		},
 	}
-	argPagEv.Paginator = utils.Paginator{
+	argsGetSuppliers[1].Paginator = utils.Paginator{
 		Limit:  utils.IntPointer(1),
 		Offset: utils.IntPointer(1),
 	}
-	sprf, err := splserv.sortedSuppliersForEvent(argPagEv)
+	sprf, err := splService.sortedSuppliersForEvent(argsGetSuppliers[1])
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
 	if !reflect.DeepEqual(eFirstSupplierProfile, sprf) {
 		t.Errorf("Expecting: %+v,received: %+v", utils.ToJSON(eFirstSupplierProfile), utils.ToJSON(sprf))
+	}
+}
+
+func TestSuppliersAsOptsGetSuppliers(t *testing.T) {
+	s := &ArgsGetSuppliers{
+		IgnoreErrors: true,
+		MaxCost:      "10.0",
+	}
+	spl := &optsGetSuppliers{
+		ignoreErrors: true,
+		maxCost:      10.0,
+	}
+	sprf, err := s.asOptsGetSuppliers()
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(spl, sprf) {
+		t.Errorf("Expecting: %+v,received: %+v", spl, sprf)
+	}
+}
+
+func TestSuppliersAsOptsGetSuppliersIgnoreErrors(t *testing.T) {
+	s := &ArgsGetSuppliers{
+		IgnoreErrors: true,
+	}
+	spl := &optsGetSuppliers{
+		ignoreErrors: true,
+	}
+	sprf, err := s.asOptsGetSuppliers()
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(spl, sprf) {
+		t.Errorf("Expecting: %+v,received: %+v", spl, sprf)
+	}
+}
+
+func TestSuppliersAsOptsGetSuppliersMaxCost(t *testing.T) {
+	s := &ArgsGetSuppliers{
+		MaxCost: "10.0",
+	}
+	spl := &optsGetSuppliers{
+		maxCost: 10.0,
+	}
+	sprf, err := s.asOptsGetSuppliers()
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(spl, sprf) {
+		t.Errorf("Expecting: %+v,received: %+v", spl, sprf)
+	}
+}
+
+func TestSuppliersMatchWithIndexFalse(t *testing.T) {
+	splService.filterS.cfg.FilterSCfg().IndexedSelects = false
+	sprf, err := splService.matchingSupplierProfilesForEvent(&argsGetSuppliers[0].CGREvent)
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(sppTest[0], sprf[0]) {
+		t.Errorf("Expecting: %+v, received: %+v", sppTest[0], sprf[0])
+	}
+
+	sprf, err = splService.matchingSupplierProfilesForEvent(&argsGetSuppliers[1].CGREvent)
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(sppTest[1], sprf[0]) {
+		t.Errorf("Expecting: %+v, received: %+v", sppTest[1], sprf[0])
+	}
+
+	sprf, err = splService.matchingSupplierProfilesForEvent(&argsGetSuppliers[2].CGREvent)
+	if err != nil {
+		t.Errorf("Error: %+v", err)
+	}
+	if !reflect.DeepEqual(sppTest[2], sprf[0]) {
+		t.Errorf("Expecting: %+v, received: %+v", sppTest[2], sprf[0])
 	}
 }

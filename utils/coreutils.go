@@ -32,6 +32,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -164,16 +165,36 @@ func ParseTimeDetectLayout(tmStr string, timezone string) (time.Time, error) {
 	}
 	rfc3339Rule := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+$`)
 	sqlRule := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}$`)
+	utcFormat := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[T]\d{2}:\d{2}:\d{2}$`)
 	gotimeRule := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.?\d*\s[+,-]\d+\s\w+$`)
 	gotimeRule2 := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.?\d*\s[+,-]\d+\s[+,-]\d+$`)
 	fsTimestamp := regexp.MustCompile(`^\d{16}$`)
 	astTimestamp := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d*[+,-]\d+$`)
 	unixTimestampRule := regexp.MustCompile(`^\d{10}$`)
+	unixTimestampMilisecondsRule := regexp.MustCompile(`^\d{13}$`)
 	oneLineTimestampRule := regexp.MustCompile(`^\d{14}$`)
 	oneSpaceTimestampRule := regexp.MustCompile(`^\d{2}\.\d{2}.\d{4}\s{1}\d{2}:\d{2}:\d{2}$`)
 	eamonTimestampRule := regexp.MustCompile(`^\d{2}/\d{2}/\d{4}\s{1}\d{2}:\d{2}:\d{2}$`)
 	broadsoftTimestampRule := regexp.MustCompile(`^\d{14}\.\d{3}`)
 	switch {
+	case tmStr == UNLIMITED || tmStr == "":
+	// leave it at zero
+	case tmStr == "*daily":
+		return time.Now().AddDate(0, 0, 1), nil // add one day
+	case tmStr == "*monthly":
+		return time.Now().AddDate(0, 1, 0), nil // add one month
+	case tmStr == "*yearly":
+		return time.Now().AddDate(1, 0, 0), nil // add one year
+	case strings.HasPrefix(tmStr, "*month_end"):
+		expDate := GetEndOfMonth(time.Now())
+		if eDurIdx := strings.Index(tmStr, "+"); eDurIdx != -1 {
+			var extraDur time.Duration
+			if extraDur, err = time.ParseDuration(tmStr[eDurIdx+1:]); err != nil {
+				return nilTime, err
+			}
+			expDate = expDate.Add(extraDur)
+		}
+		return expDate, nil
 	case astTimestamp.MatchString(tmStr):
 		return time.Parse("2006-01-02T15:04:05.999999999-0700", tmStr)
 	case rfc3339Rule.MatchString(tmStr):
@@ -196,6 +217,12 @@ func ParseTimeDetectLayout(tmStr string, timezone string) (time.Time, error) {
 		} else {
 			return time.Unix(tmstmp, 0).In(loc), nil
 		}
+	case unixTimestampMilisecondsRule.MatchString(tmStr):
+		if tmstmp, err := strconv.ParseInt(tmStr, 10, 64); err != nil {
+			return nilTime, err
+		} else {
+			return time.Unix(0, tmstmp*int64(time.Millisecond)).In(loc), nil
+		}
 	case tmStr == "0" || len(tmStr) == 0: // Time probably missing from request
 		return nilTime, nil
 	case oneLineTimestampRule.MatchString(tmStr):
@@ -215,40 +242,11 @@ func ParseTimeDetectLayout(tmStr string, timezone string) (time.Time, error) {
 		} else {
 			return time.Now().Add(tmStrTmp), nil
 		}
+	case utcFormat.MatchString(tmStr):
+		return time.ParseInLocation("2006-01-02T15:04:05", tmStr, loc)
 
 	}
 	return nilTime, errors.New("Unsupported time format")
-}
-
-func ParseDate(date string) (expDate time.Time, err error) {
-	date = strings.TrimSpace(date)
-	switch {
-	case date == UNLIMITED || date == "":
-		// leave it at zero
-	case strings.HasPrefix(date, "+"):
-		d, err := time.ParseDuration(date[1:])
-		if err != nil {
-			return expDate, err
-		}
-		expDate = time.Now().Add(d)
-	case date == "*daily":
-		expDate = time.Now().AddDate(0, 0, 1) // add one day
-	case date == "*monthly":
-		expDate = time.Now().AddDate(0, 1, 0) // add one month
-	case date == "*yearly":
-		expDate = time.Now().AddDate(1, 0, 0) // add one year
-	case date == "*month_end":
-		expDate = GetEndOfMonth(time.Now())
-	case strings.HasSuffix(date, "Z") || strings.Index(date, "+") != -1: // Allow both Z and +hh:mm format
-		expDate, err = time.Parse(time.RFC3339, date)
-	default:
-		unix, err := strconv.ParseInt(date, 10, 64)
-		if err != nil {
-			return expDate, err
-		}
-		expDate = time.Unix(unix, 0)
-	}
-	return expDate, err
 }
 
 // returns a number equal or larger than the amount that exactly
@@ -293,6 +291,9 @@ func ParseDurationWithSecs(durStr string) (d time.Duration, err error) {
 func ParseDurationWithNanosecs(durStr string) (d time.Duration, err error) {
 	if durStr == "" {
 		return
+	}
+	if durStr == UNLIMITED {
+		durStr = "-1"
 	}
 	if _, err = strconv.ParseFloat(durStr, 64); err == nil { // Seconds format considered
 		durStr += "ns"
@@ -341,7 +342,6 @@ func ConcatenatedKey(keyVals ...string) string {
 
 func LCRKey(direction, tenant, category, account, subject string) string {
 	return ConcatenatedKey(direction, tenant, category, account, subject)
-
 }
 
 func RatingSubjectAliasKey(tenant, subject string) string {
@@ -452,10 +452,6 @@ func Float64Pointer(f float64) *float64 {
 
 func BoolPointer(b bool) *bool {
 	return &b
-}
-
-func Float64SlicePointer(slc []float64) *[]float64 {
-	return &slc
 }
 
 func StringMapPointer(sm StringMap) *StringMap {
@@ -629,7 +625,7 @@ func TimeIs0h(t time.Time) bool {
 
 func ParseHierarchyPath(path string, sep string) HierarchyPath {
 	if sep == "" {
-		for _, sep = range []string{HIERARCHY_SEP, "/"} {
+		for _, sep = range []string{"/", NestingSep} {
 			if idx := strings.Index(path, sep); idx != -1 {
 				break
 			}
@@ -788,7 +784,8 @@ func RPCCall(inst interface{}, serviceMethod string, args interface{}, reply int
 	if len(methodSplit) != 2 {
 		return rpcclient.ErrUnsupporteServiceMethod
 	}
-	method := reflect.ValueOf(inst).MethodByName(methodSplit[0][len(methodSplit[0])-2:] + methodSplit[1])
+	method := reflect.ValueOf(inst).MethodByName(
+		strings.ToUpper(methodSplit[0][len(methodSplit[0])-2:]) + methodSplit[1])
 	if !method.IsValid() {
 		return rpcclient.ErrUnsupporteServiceMethod
 	}
@@ -830,4 +827,72 @@ func APIerRPCCall(inst interface{}, serviceMethod string, args interface{}, repl
 		return ErrServerError
 	}
 	return err
+}
+
+type AuthStruct struct {
+	Tenant string
+	ApiKey string
+}
+
+// NewFallbackFileNameFronString will revert the meta information in the fallback file name into original data
+func NewFallbackFileNameFronString(fileName string) (ffn *FallbackFileName, err error) {
+	ffn = new(FallbackFileName)
+	moduleIdx := strings.Index(fileName, HandlerArgSep)
+	ffn.Module = fileName[:moduleIdx]
+	var supportedModule bool
+	for _, prfx := range []string{ActionsPoster, CDRPoster} {
+		if strings.HasPrefix(ffn.Module, prfx) {
+			supportedModule = true
+			break
+		}
+	}
+	if !supportedModule {
+		return nil, fmt.Errorf("unsupported module: %s", ffn.Module)
+	}
+	fileNameWithoutModule := fileName[moduleIdx+1:]
+	for _, trspt := range []string{MetaHTTPjsonCDR, MetaHTTPjsonMap, MetaHTTPjson, META_HTTP_POST, MetaAMQPjsonCDR, MetaAMQPjsonMap} {
+		if strings.HasPrefix(fileNameWithoutModule, trspt) {
+			ffn.Transport = trspt
+			break
+		}
+	}
+	if ffn.Transport == "" {
+		return nil, fmt.Errorf("unsupported transport in fallback file path: %s", fileName)
+	}
+	fileNameWithoutTransport := fileNameWithoutModule[len(ffn.Transport)+1:]
+	reqIDidx := strings.LastIndex(fileNameWithoutTransport, HandlerArgSep)
+	if reqIDidx == -1 {
+		return nil, fmt.Errorf("cannot find request ID in fallback file path: %s", fileName)
+	}
+	if ffn.Address, err = url.QueryUnescape(fileNameWithoutTransport[:reqIDidx]); err != nil {
+		return nil, err
+	}
+	fileNameWithoutAddress := fileNameWithoutTransport[reqIDidx+1:]
+	for _, suffix := range []string{TxtSuffix, JSNSuffix, FormSuffix} {
+		if strings.HasSuffix(fileNameWithoutAddress, suffix) {
+			ffn.FileSuffix = suffix
+			break
+		}
+	}
+	if ffn.FileSuffix == "" {
+		return nil, fmt.Errorf("unsupported suffix in fallback file path: %s", fileName)
+	}
+	ffn.RequestID = fileNameWithoutAddress[:len(fileNameWithoutAddress)-len(ffn.FileSuffix)]
+	return
+}
+
+// FallbackFileName is the struct defining the name of a file where CGRateS will dump data which fails to be sent remotely
+type FallbackFileName struct {
+	Module     string // name of the module writing the file
+	Transport  string // transport used to send data remotely
+	Address    string // remote address where data should have been sent
+	RequestID  string // unique identifier of the request which should make files unique
+	FileSuffix string // informative file termination suffix
+}
+
+func (ffn *FallbackFileName) AsString() string {
+	if ffn.FileSuffix == "" { // Autopopulate FileSuffix based on the transport used
+		ffn.FileSuffix = CDREFileSuffixes[ffn.Transport]
+	}
+	return fmt.Sprintf("%s%s%s%s%s%s%s%s", ffn.Module, HandlerArgSep, ffn.Transport, HandlerArgSep, url.QueryEscape(ffn.Address), HandlerArgSep, ffn.RequestID, ffn.FileSuffix)
 }

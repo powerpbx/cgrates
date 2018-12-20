@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cgrates/cgrates/cache"
 	"github.com/cgrates/cgrates/structmatcher"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -48,9 +47,7 @@ type TpReader struct {
 	ratingPlans       map[string]*RatingPlan
 	ratingProfiles    map[string]*RatingProfile
 	sharedGroups      map[string]*SharedGroup
-	lcrs              map[string]*LCR
 	derivedChargers   map[string]*utils.DerivedChargers
-	cdrStats          map[string]*CdrStats
 	users             map[string]*UserProfile
 	aliases           map[string]*Alias
 	resProfiles       map[utils.TenantID]*utils.TPResource
@@ -59,19 +56,16 @@ type TpReader struct {
 	filters           map[utils.TenantID]*utils.TPFilterProfile
 	sppProfiles       map[utils.TenantID]*utils.TPSupplierProfile
 	attributeProfiles map[utils.TenantID]*utils.TPAttributeProfile
+	chargerProfiles   map[utils.TenantID]*utils.TPChargerProfile
 	resources         []*utils.TenantID // IDs of resources which need creation based on resourceProfiles
 	statQueues        []*utils.TenantID // IDs of statQueues which need creation based on statQueueProfiles
 	thresholds        []*utils.TenantID // IDs of thresholds which need creation based on thresholdProfiles
 	suppliers         []*utils.TenantID // IDs of suppliers which need creation based on sppProfiles
 	attrTntID         []*utils.TenantID // IDs of suppliers which need creation based on attributeProfiles
+	chargers          []*utils.TenantID // IDs of chargers which need creation based on chargerProfiles
 	revDests,
 	revAliases,
 	acntActionPlans map[string][]string
-	thdsIndexers map[string]*ReqFilterIndexer // tenant, indexer
-	sqpIndexers  map[string]*ReqFilterIndexer // tenant, indexer
-	resIndexers  map[string]*ReqFilterIndexer // tenant, indexer
-	sppIndexers  map[string]*ReqFilterIndexer // tenant, indexer
-	attrIndexers map[string]*ReqFilterIndexer // tenant:context , indexer
 }
 
 func NewTpReader(db DataDB, lr LoadReader, tpid, timezone string) *TpReader {
@@ -133,9 +127,7 @@ func (tpr *TpReader) Init() {
 	tpr.ratingPlans = make(map[string]*RatingPlan)
 	tpr.ratingProfiles = make(map[string]*RatingProfile)
 	tpr.sharedGroups = make(map[string]*SharedGroup)
-	tpr.lcrs = make(map[string]*LCR)
 	tpr.accountActions = make(map[string]*Account)
-	tpr.cdrStats = make(map[string]*CdrStats)
 	tpr.users = make(map[string]*UserProfile)
 	tpr.aliases = make(map[string]*Alias)
 	tpr.derivedChargers = make(map[string]*utils.DerivedChargers)
@@ -144,15 +136,11 @@ func (tpr *TpReader) Init() {
 	tpr.thProfiles = make(map[utils.TenantID]*utils.TPThreshold)
 	tpr.sppProfiles = make(map[utils.TenantID]*utils.TPSupplierProfile)
 	tpr.attributeProfiles = make(map[utils.TenantID]*utils.TPAttributeProfile)
+	tpr.chargerProfiles = make(map[utils.TenantID]*utils.TPChargerProfile)
 	tpr.filters = make(map[utils.TenantID]*utils.TPFilterProfile)
 	tpr.revDests = make(map[string][]string)
 	tpr.revAliases = make(map[string][]string)
 	tpr.acntActionPlans = make(map[string][]string)
-	tpr.thdsIndexers = make(map[string]*ReqFilterIndexer)
-	tpr.sqpIndexers = make(map[string]*ReqFilterIndexer)
-	tpr.resIndexers = make(map[string]*ReqFilterIndexer)
-	tpr.sppIndexers = make(map[string]*ReqFilterIndexer)
-	tpr.attrIndexers = make(map[string]*ReqFilterIndexer)
 }
 
 func (tpr *TpReader) LoadDestinationsFiltered(tag string) (bool, error) {
@@ -167,13 +155,13 @@ func (tpr *TpReader) LoadDestinationsFiltered(tag string) (bool, error) {
 		dst := NewDestinationFromTPDestination(tpDst)
 		// ToDo: Fix transactions at onlineDB level
 		if err = tpr.dm.DataDB().SetDestination(dst, transID); err != nil {
-			cache.RollbackTransaction(transID)
+			Cache.RollbackTransaction(transID)
 		}
 		if err = tpr.dm.DataDB().SetReverseDestination(dst, transID); err != nil {
-			cache.RollbackTransaction(transID)
+			Cache.RollbackTransaction(transID)
 		}
 	}
-	cache.CommitTransaction(transID)
+	Cache.CommitTransaction(transID)
 	return true, nil
 }
 
@@ -252,7 +240,7 @@ func (tpr *TpReader) LoadDestinationRates() (err error) {
 				_, destinationExists = tpr.destinations[dr.DestinationId]
 			}
 			if !destinationExists && tpr.dm.dataDB != nil {
-				if destinationExists, err = tpr.dm.HasData(utils.DESTINATION_PREFIX, dr.DestinationId); err != nil {
+				if destinationExists, err = tpr.dm.HasData(utils.DESTINATION_PREFIX, dr.DestinationId, ""); err != nil {
 					return err
 				}
 			}
@@ -321,7 +309,7 @@ func (tpr *TpReader) LoadRatingPlansFiltered(tag string) (bool, error) {
 				}
 				destsExist := len(dms) != 0
 				if !destsExist && tpr.dm.dataDB != nil {
-					if dbExists, err := tpr.dm.HasData(utils.DESTINATION_PREFIX, drate.DestinationId); err != nil {
+					if dbExists, err := tpr.dm.HasData(utils.DESTINATION_PREFIX, drate.DestinationId, ""); err != nil {
 						return false, err
 					} else if dbExists {
 						destsExist = true
@@ -388,13 +376,13 @@ func (tpr *TpReader) LoadRatingProfilesFiltered(qriedRpf *utils.TPRatingProfile)
 	for _, tpRpf := range rpfs {
 		resultRatingProfile = &RatingProfile{Id: tpRpf.KeyId()}
 		for _, tpRa := range tpRpf.RatingPlanActivations {
-			at, err := utils.ParseDate(tpRa.ActivationTime)
+			at, err := utils.ParseTimeDetectLayout(tpRa.ActivationTime, tpr.timezone)
 			if err != nil {
 				return fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
 			}
 			_, exists := tpr.ratingPlans[tpRa.RatingPlanId]
 			if !exists && tpr.dm.dataDB != nil {
-				if exists, err = tpr.dm.HasData(utils.RATING_PLAN_PREFIX, tpRa.RatingPlanId); err != nil {
+				if exists, err = tpr.dm.HasData(utils.RATING_PLAN_PREFIX, tpRa.RatingPlanId, ""); err != nil {
 					return err
 				}
 			}
@@ -428,13 +416,13 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
 	for _, tpRpf := range mpTpRpfs {
 		rpf := &RatingProfile{Id: tpRpf.KeyId()}
 		for _, tpRa := range tpRpf.RatingPlanActivations {
-			at, err := utils.ParseDate(tpRa.ActivationTime)
+			at, err := utils.ParseTimeDetectLayout(tpRa.ActivationTime, tpr.timezone)
 			if err != nil {
 				return fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
 			}
 			_, exists := tpr.ratingPlans[tpRa.RatingPlanId]
 			if !exists && tpr.dm.dataDB != nil { // Only query if there is a connection, eg on dry run there is none
-				if exists, err = tpr.dm.HasData(utils.RATING_PLAN_PREFIX, tpRa.RatingPlanId); err != nil {
+				if exists, err = tpr.dm.HasData(utils.RATING_PLAN_PREFIX, tpRa.RatingPlanId, ""); err != nil {
 					return err
 				}
 			}
@@ -488,86 +476,6 @@ func (tpr *TpReader) LoadSharedGroupsFiltered(tag string, save bool) (err error)
 
 func (tpr *TpReader) LoadSharedGroups() error {
 	return tpr.LoadSharedGroupsFiltered(tpr.tpid, false)
-}
-
-func (tpr *TpReader) LoadLCRs() (err error) {
-	tps, err := tpr.lr.GetTPLCRs(&utils.TPLcrRules{TPid: tpr.tpid})
-	if err != nil {
-		return err
-	}
-	for _, tpLcr := range tps {
-		if tpLcr != nil {
-			for _, rule := range tpLcr.Rules {
-				// check the rating profiles
-				ratingProfileSearchKey := utils.ConcatenatedKey(tpLcr.Direction, tpLcr.Tenant, rule.RpCategory)
-				found := false
-				for rpfKey := range tpr.ratingProfiles {
-					if strings.HasPrefix(rpfKey, ratingProfileSearchKey) {
-						found = true
-						break
-					}
-				}
-				if !found && tpr.dm.dataDB != nil {
-					if keys, err := tpr.dm.DataDB().GetKeysForPrefix(utils.RATING_PROFILE_PREFIX + ratingProfileSearchKey); err != nil {
-						return fmt.Errorf("[LCR] error querying dataDb %s", err.Error())
-					} else if len(keys) != 0 {
-						found = true
-					}
-				}
-				if !found {
-					return fmt.Errorf("[LCR] could not find ratingProfiles with prefix %s", ratingProfileSearchKey)
-				}
-
-				// check destination tags
-				if rule.DestinationId != "" && rule.DestinationId != utils.ANY {
-					_, found := tpr.destinations[rule.DestinationId]
-					if !found && tpr.dm.dataDB != nil {
-						if found, err = tpr.dm.HasData(utils.DESTINATION_PREFIX, rule.DestinationId); err != nil {
-							return fmt.Errorf("[LCR] error querying dataDb %s", err.Error())
-						}
-					}
-					if !found {
-						return fmt.Errorf("[LCR] could not find destination with tag %s", rule.DestinationId)
-					}
-				}
-				tag := utils.LCRKey(tpLcr.Direction, tpLcr.Tenant, tpLcr.Category, tpLcr.Account, tpLcr.Subject)
-				activationTime, _ := utils.ParseTimeDetectLayout(rule.ActivationTime, tpr.timezone)
-
-				lcr, found := tpr.lcrs[tag]
-				if !found {
-					lcr = &LCR{
-						Direction: tpLcr.Direction,
-						Tenant:    tpLcr.Tenant,
-						Category:  tpLcr.Category,
-						Account:   tpLcr.Account,
-						Subject:   tpLcr.Subject,
-					}
-				}
-				var act *LCRActivation
-				for _, existingAct := range lcr.Activations {
-					if existingAct.ActivationTime.Equal(activationTime) {
-						act = existingAct
-						break
-					}
-				}
-				if act == nil {
-					act = &LCRActivation{
-						ActivationTime: activationTime,
-					}
-					lcr.Activations = append(lcr.Activations, act)
-				}
-				act.Entries = append(act.Entries, &LCREntry{
-					DestinationId:  rule.DestinationId,
-					RPCategory:     rule.RpCategory,
-					Strategy:       rule.Strategy,
-					StrategyParams: rule.StrategyParams,
-					Weight:         rule.Weight,
-				})
-				tpr.lcrs[tag] = lcr
-			}
-		}
-	}
-	return nil
 }
 
 func (tpr *TpReader) LoadActions() (err error) {
@@ -688,7 +596,7 @@ func (tpr *TpReader) LoadActionPlans() (err error) {
 
 			_, exists := tpr.actions[at.ActionsId]
 			if !exists && tpr.dm.dataDB != nil {
-				if exists, err = tpr.dm.HasData(utils.ACTION_PREFIX, at.ActionsId); err != nil {
+				if exists, err = tpr.dm.HasData(utils.ACTION_PREFIX, at.ActionsId, ""); err != nil {
 					return fmt.Errorf("[ActionPlans] Error querying actions: %v - %s", at.ActionsId, err.Error())
 				}
 			}
@@ -1249,241 +1157,6 @@ func (tpr *TpReader) LoadDerivedChargers() (err error) {
 	return tpr.LoadDerivedChargersFiltered(&utils.TPDerivedChargers{TPid: tpr.tpid}, false)
 }
 
-func (tpr *TpReader) LoadCdrStatsFiltered(tag string, save bool) (err error) {
-	tps, err := tpr.lr.GetTPCdrStats(tpr.tpid, tag)
-	if err != nil {
-		return err
-	}
-	storStats := MapTPCdrStats(tps)
-	var actionIDs []string // collect action ids
-	for tag, tpStats := range storStats {
-		for _, tpStat := range tpStats {
-			var cs *CdrStats
-			var exists bool
-			if cs, exists = tpr.cdrStats[tag]; !exists {
-				cs = &CdrStats{Id: tag}
-			}
-			// action triggers
-			triggerTag := tpStat.ActionTriggers
-			if triggerTag != "" {
-				_, exists := tpr.actionsTriggers[triggerTag]
-				if !exists {
-					tpatrs, err := tpr.lr.GetTPActionTriggers(tpr.tpid, triggerTag)
-					if err != nil {
-						return errors.New(err.Error() + " (ActionTriggers): " + triggerTag)
-					}
-					atrsM := MapTPActionTriggers(tpatrs)
-					for _, atrsLst := range atrsM {
-						atrs := make([]*ActionTrigger, len(atrsLst))
-						for idx, atr := range atrsLst {
-							minSleep, _ := utils.ParseDurationWithNanosecs(atr.MinSleep)
-							expTime, _ := utils.ParseTimeDetectLayout(atr.ExpirationDate, tpr.timezone)
-							actTime, _ := utils.ParseTimeDetectLayout(atr.ActivationDate, tpr.timezone)
-							if atr.UniqueID == "" {
-								atr.UniqueID = utils.GenUUID()
-							}
-							atrs[idx] = &ActionTrigger{
-								ID:             triggerTag,
-								UniqueID:       atr.UniqueID,
-								ThresholdType:  atr.ThresholdType,
-								ThresholdValue: atr.ThresholdValue,
-								Recurrent:      atr.Recurrent,
-								MinSleep:       minSleep,
-								ExpirationDate: expTime,
-								ActivationDate: actTime,
-								Balance:        &BalanceFilter{},
-								Weight:         atr.Weight,
-								ActionsID:      atr.ActionsId,
-							}
-							if atr.BalanceId != "" && atr.BalanceId != utils.ANY {
-								atrs[idx].Balance.ID = utils.StringPointer(atr.BalanceId)
-							}
-
-							if atr.BalanceType != "" && atr.BalanceType != utils.ANY {
-								atrs[idx].Balance.Type = utils.StringPointer(atr.BalanceType)
-							}
-
-							if atr.BalanceWeight != "" && atr.BalanceWeight != utils.ANY {
-								u, err := strconv.ParseFloat(atr.BalanceWeight, 64)
-								if err != nil {
-									return err
-								}
-								atrs[idx].Balance.Weight = utils.Float64Pointer(u)
-							}
-							if atr.BalanceExpirationDate != "" && atr.BalanceExpirationDate != utils.ANY && atr.ExpirationDate != utils.UNLIMITED {
-								u, err := utils.ParseTimeDetectLayout(atr.BalanceExpirationDate, tpr.timezone)
-								if err != nil {
-									return err
-								}
-								atrs[idx].Balance.ExpirationDate = utils.TimePointer(u)
-							}
-							if atr.BalanceRatingSubject != "" && atr.BalanceRatingSubject != utils.ANY {
-								atrs[idx].Balance.RatingSubject = utils.StringPointer(atr.BalanceRatingSubject)
-							}
-
-							if atr.BalanceCategories != "" && atr.BalanceCategories != utils.ANY {
-								atrs[idx].Balance.Categories = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceCategories))
-							}
-							if atr.BalanceDirections != "" && atr.BalanceDirections != utils.ANY {
-								atrs[idx].Balance.Directions = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceDirections))
-							}
-							if atr.BalanceDestinationIds != "" && atr.BalanceDestinationIds != utils.ANY {
-								atrs[idx].Balance.DestinationIDs = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceDestinationIds))
-							}
-							if atr.BalanceSharedGroups != "" && atr.BalanceSharedGroups != utils.ANY {
-								atrs[idx].Balance.SharedGroups = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceSharedGroups))
-							}
-							if atr.BalanceTimingTags != "" && atr.BalanceTimingTags != utils.ANY {
-								atrs[idx].Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(atr.BalanceTimingTags))
-							}
-							if atr.BalanceBlocker != "" && atr.BalanceBlocker != utils.ANY {
-								u, err := strconv.ParseBool(atr.BalanceBlocker)
-								if err != nil {
-									return err
-								}
-								atrs[idx].Balance.Blocker = utils.BoolPointer(u)
-							}
-							if atr.BalanceDisabled != "" && atr.BalanceDisabled != utils.ANY {
-								u, err := strconv.ParseBool(atr.BalanceDisabled)
-								if err != nil {
-									return err
-								}
-								atrs[idx].Balance.Disabled = utils.BoolPointer(u)
-							}
-						}
-						tpr.actionsTriggers[triggerTag] = atrs
-					}
-				}
-				// collect action ids from triggers
-				for _, atr := range tpr.actionsTriggers[triggerTag] {
-					actionIDs = append(actionIDs, atr.ActionsID)
-				}
-			}
-			triggers, exists := tpr.actionsTriggers[triggerTag]
-			if triggerTag != "" && !exists {
-				// only return error if there was something there for the tag
-				return fmt.Errorf("could not get action triggers for cdr stats id %s: %s", cs.Id, triggerTag)
-			}
-			// write action triggers
-			err = tpr.dm.SetActionTriggers(triggerTag, triggers, utils.NonTransactional)
-			if err != nil {
-				return errors.New(err.Error() + " (SetActionTriggers): " + triggerTag)
-			}
-			UpdateCdrStats(cs, triggers, tpStat, tpr.timezone)
-			tpr.cdrStats[tag] = cs
-		}
-	}
-	// actions
-	for _, actId := range actionIDs {
-		_, exists := tpr.actions[actId]
-		if !exists {
-			tpas, err := tpr.lr.GetTPActions(tpr.tpid, actId)
-			if err != nil {
-				return err
-			}
-			as := MapTPActions(tpas)
-			for tag, tpacts := range as {
-				acts := make([]*Action, len(tpacts))
-				for idx, tpact := range tpacts {
-					// check filter field
-					if len(tpact.Filter) > 0 {
-						if _, err := structmatcher.NewStructMatcher(tpact.Filter); err != nil {
-							return fmt.Errorf("error parsing action %s filter field: %v", tag, err)
-						}
-					}
-					acts[idx] = &Action{
-						Id:         tag,
-						ActionType: tpact.Identifier,
-						//BalanceType:      tpact.BalanceType,
-						Weight:           tpact.Weight,
-						ExtraParameters:  tpact.ExtraParameters,
-						ExpirationString: tpact.ExpiryTime,
-						Filter:           tpact.Filter,
-						Balance:          &BalanceFilter{},
-					}
-					if tpact.BalanceId != "" && tpact.BalanceId != utils.ANY {
-						acts[idx].Balance.ID = utils.StringPointer(tpact.BalanceId)
-					}
-					if tpact.BalanceType != "" && tpact.BalanceType != utils.ANY {
-						acts[idx].Balance.Type = utils.StringPointer(tpact.BalanceType)
-					}
-
-					if tpact.Units != "" && tpact.Units != utils.ANY {
-						vf, err := utils.ParseBalanceFilterValue(tpact.BalanceType, tpact.Units)
-						if err != nil {
-							return err
-						}
-						acts[idx].Balance.Value = vf
-					}
-
-					if tpact.BalanceWeight != "" && tpact.BalanceWeight != utils.ANY {
-						u, err := strconv.ParseFloat(tpact.BalanceWeight, 64)
-						if err != nil {
-							return err
-						}
-						acts[idx].Balance.Weight = utils.Float64Pointer(u)
-					}
-					if tpact.RatingSubject != "" && tpact.RatingSubject != utils.ANY {
-						acts[idx].Balance.RatingSubject = utils.StringPointer(tpact.RatingSubject)
-					}
-
-					if tpact.Categories != "" && tpact.Categories != utils.ANY {
-						acts[idx].Balance.Categories = utils.StringMapPointer(utils.ParseStringMap(tpact.Categories))
-					}
-					if tpact.Directions != "" && tpact.Directions != utils.ANY {
-						acts[idx].Balance.Directions = utils.StringMapPointer(utils.ParseStringMap(tpact.Directions))
-					}
-					if tpact.DestinationIds != "" && tpact.DestinationIds != utils.ANY {
-						acts[idx].Balance.DestinationIDs = utils.StringMapPointer(utils.ParseStringMap(tpact.DestinationIds))
-					}
-					if tpact.SharedGroups != "" && tpact.SharedGroups != utils.ANY {
-						acts[idx].Balance.SharedGroups = utils.StringMapPointer(utils.ParseStringMap(tpact.SharedGroups))
-					}
-					if tpact.TimingTags != "" && tpact.TimingTags != utils.ANY {
-						acts[idx].Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(tpact.TimingTags))
-					}
-					if tpact.BalanceBlocker != "" && tpact.BalanceBlocker != utils.ANY {
-						u, err := strconv.ParseBool(tpact.BalanceBlocker)
-						if err != nil {
-							return err
-						}
-						acts[idx].Balance.Blocker = utils.BoolPointer(u)
-					}
-					if tpact.BalanceDisabled != "" && tpact.BalanceDisabled != utils.ANY {
-						u, err := strconv.ParseBool(tpact.BalanceDisabled)
-						if err != nil {
-							return err
-						}
-						acts[idx].Balance.Disabled = utils.BoolPointer(u)
-					}
-
-				}
-				tpr.actions[tag] = acts
-			}
-		}
-	}
-
-	if save {
-		// write actions
-		for k, as := range tpr.actions {
-			err = tpr.dm.SetActions(k, as, utils.NonTransactional)
-			if err != nil {
-				return err
-			}
-		}
-		for _, stat := range tpr.cdrStats {
-			if err := tpr.dm.SetCdrStats(stat); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (tpr *TpReader) LoadCdrStats() error {
-	return tpr.LoadCdrStatsFiltered("", false)
-}
-
 func (tpr *TpReader) LoadUsersFiltered(filter *utils.TPUsers) (bool, error) {
 	tpUsers, err := tpr.lr.GetTPUsers(filter)
 	if err != nil {
@@ -1622,46 +1295,11 @@ func (tpr *TpReader) LoadResourceProfilesFiltered(tag string) (err error) {
 		mapRsPfls[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
 	}
 	tpr.resProfiles = mapRsPfls
-	for tntID, res := range mapRsPfls {
-		if has, err := tpr.dm.HasData(utils.ResourcesPrefix, tntID.TenantID()); err != nil {
+	for tntID := range mapRsPfls {
+		if has, err := tpr.dm.HasData(utils.ResourcesPrefix, tntID.ID, tntID.Tenant); err != nil {
 			return err
 		} else if !has {
 			tpr.resources = append(tpr.resources, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-		// index resource for filters
-		if _, has := tpr.resIndexers[tntID.Tenant]; !has {
-			if tpr.resIndexers[tntID.Tenant] = NewReqFilterIndexer(tpr.dm, utils.ResourceProfilesPrefix, tntID.Tenant); err != nil {
-				return
-			}
-		}
-		for _, fltrID := range res.FilterIDs {
-			if strings.HasPrefix(fltrID, utils.MetaPrefix) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err := inFltr.AsFilter(tntID.Tenant)
-				if err != nil {
-					return err
-				}
-				tpFltr := FilterToTPFilter(fltr)
-				tpr.resIndexers[tntID.Tenant].IndexTPFilter(tpFltr, res.ID)
-			} else {
-				tpFltr, has := tpr.filters[utils.TenantID{Tenant: tntID.Tenant, ID: fltrID}]
-				if !has {
-					var fltr *Filter
-					if fltr, err = tpr.dm.GetFilter(tntID.Tenant, fltrID, false, utils.NonTransactional); err != nil {
-						if err == utils.ErrNotFound {
-							err = fmt.Errorf("broken reference to filter: %+v for resoruce: %+v", fltrID, res)
-						}
-						return
-					} else {
-						tpFltr = FilterToTPFilter(fltr)
-					}
-				} else {
-					tpr.resIndexers[tntID.Tenant].IndexTPFilter(tpFltr, res.ID)
-				}
-			}
 		}
 	}
 	return nil
@@ -1681,46 +1319,11 @@ func (tpr *TpReader) LoadStatsFiltered(tag string) (err error) {
 		mapSTs[utils.TenantID{Tenant: st.Tenant, ID: st.ID}] = st
 	}
 	tpr.sqProfiles = mapSTs
-	for tntID, sq := range mapSTs {
-		if has, err := tpr.dm.HasData(utils.StatQueuePrefix, tntID.TenantID()); err != nil {
+	for tntID := range mapSTs {
+		if has, err := tpr.dm.HasData(utils.StatQueuePrefix, tntID.ID, tntID.Tenant); err != nil {
 			return err
 		} else if !has {
 			tpr.statQueues = append(tpr.statQueues, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-		// index statQueues for filters
-		if _, has := tpr.sqpIndexers[tntID.Tenant]; !has {
-			if tpr.sqpIndexers[tntID.Tenant] = NewReqFilterIndexer(tpr.dm, utils.StatQueueProfilePrefix, tntID.Tenant); err != nil {
-				return
-			}
-		}
-		for _, fltrID := range sq.FilterIDs {
-			if strings.HasPrefix(fltrID, utils.MetaPrefix) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err := inFltr.AsFilter(tntID.Tenant)
-				if err != nil {
-					return err
-				}
-				tpFltr := FilterToTPFilter(fltr)
-				tpr.sqpIndexers[tntID.Tenant].IndexTPFilter(tpFltr, sq.ID)
-			} else {
-				tpFltr, has := tpr.filters[utils.TenantID{Tenant: tntID.Tenant, ID: fltrID}]
-				if !has {
-					var fltr *Filter
-					if fltr, err = tpr.dm.GetFilter(tntID.Tenant, fltrID, false, utils.NonTransactional); err != nil {
-						if err == utils.ErrNotFound {
-							err = fmt.Errorf("broken reference to filter: %+v for statQueue: %+v", fltrID, sq)
-						}
-						return
-					} else {
-						tpFltr = FilterToTPFilter(fltr)
-					}
-				} else {
-					tpr.sqpIndexers[tntID.Tenant].IndexTPFilter(tpFltr, sq.ID)
-				}
-			}
 		}
 	}
 	return nil
@@ -1740,46 +1343,11 @@ func (tpr *TpReader) LoadThresholdsFiltered(tag string) (err error) {
 		mapTHs[utils.TenantID{Tenant: th.Tenant, ID: th.ID}] = th
 	}
 	tpr.thProfiles = mapTHs
-	for tntID, th := range mapTHs {
-		if has, err := tpr.dm.HasData(utils.ThresholdPrefix, tntID.TenantID()); err != nil {
+	for tntID := range mapTHs {
+		if has, err := tpr.dm.HasData(utils.ThresholdPrefix, tntID.ID, tntID.Tenant); err != nil {
 			return err
 		} else if !has {
 			tpr.thresholds = append(tpr.thresholds, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-		// index thresholds for filters
-		if _, has := tpr.thdsIndexers[tntID.Tenant]; !has {
-			if tpr.thdsIndexers[tntID.Tenant] = NewReqFilterIndexer(tpr.dm, utils.ThresholdProfilePrefix, tntID.Tenant); err != nil {
-				return
-			}
-		}
-		for _, fltrID := range th.FilterIDs {
-			if strings.HasPrefix(fltrID, utils.MetaPrefix) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err := inFltr.AsFilter(tntID.Tenant)
-				if err != nil {
-					return err
-				}
-				tpFltr := FilterToTPFilter(fltr)
-				tpr.thdsIndexers[tntID.Tenant].IndexTPFilter(tpFltr, th.ID)
-			} else {
-				tpFltr, has := tpr.filters[utils.TenantID{Tenant: tntID.Tenant, ID: fltrID}]
-				if !has {
-					var fltr *Filter
-					if fltr, err = tpr.dm.GetFilter(tntID.Tenant, fltrID, false, utils.NonTransactional); err != nil {
-						if err == utils.ErrNotFound {
-							err = fmt.Errorf("broken reference to filter: %+v for threshold: %+v", fltrID, th)
-						}
-						return
-					} else {
-						tpFltr = FilterToTPFilter(fltr)
-					}
-				} else {
-					tpr.thdsIndexers[tntID.Tenant].IndexTPFilter(tpFltr, th.ID)
-				}
-			}
 		}
 	}
 	return nil
@@ -1816,46 +1384,11 @@ func (tpr *TpReader) LoadSupplierProfilesFiltered(tag string) (err error) {
 		mapRsPfls[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
 	}
 	tpr.sppProfiles = mapRsPfls
-	for tntID, sup := range mapRsPfls {
-		if has, err := tpr.dm.HasData(utils.SupplierProfilePrefix, tntID.TenantID()); err != nil {
+	for tntID := range mapRsPfls {
+		if has, err := tpr.dm.HasData(utils.SupplierProfilePrefix, tntID.ID, tntID.Tenant); err != nil {
 			return err
 		} else if !has {
 			tpr.suppliers = append(tpr.suppliers, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-		// index supplier profile for filters
-		if _, has := tpr.sppIndexers[tntID.Tenant]; !has {
-			if tpr.sppIndexers[tntID.Tenant] = NewReqFilterIndexer(tpr.dm, utils.SupplierProfilePrefix, tntID.Tenant); err != nil {
-				return
-			}
-		}
-		for _, fltrID := range sup.FilterIDs {
-			if strings.HasPrefix(fltrID, utils.MetaPrefix) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err := inFltr.AsFilter(tntID.Tenant)
-				if err != nil {
-					return err
-				}
-				tpFltr := FilterToTPFilter(fltr)
-				tpr.sppIndexers[tntID.Tenant].IndexTPFilter(tpFltr, sup.ID)
-			} else {
-				tpFltr, has := tpr.filters[utils.TenantID{Tenant: tntID.Tenant, ID: fltrID}]
-				if !has {
-					var fltr *Filter
-					if fltr, err = tpr.dm.GetFilter(tntID.Tenant, fltrID, false, utils.NonTransactional); err != nil {
-						if err == utils.ErrNotFound {
-							err = fmt.Errorf("broken reference to filter: %+v for SupplierProfile: %+v", fltrID, sup)
-						}
-						return
-					} else {
-						tpFltr = FilterToTPFilter(fltr)
-					}
-				} else {
-					tpr.sppIndexers[tntID.Tenant].IndexTPFilter(tpFltr, sup.ID)
-				}
-			}
 		}
 	}
 	return nil
@@ -1875,49 +1408,11 @@ func (tpr *TpReader) LoadAttributeProfilesFiltered(tag string) (err error) {
 		mapRsPfls[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
 	}
 	tpr.attributeProfiles = mapRsPfls
-	for tntID, attrP := range mapRsPfls {
-		if has, err := tpr.dm.HasData(utils.AttributeProfilePrefix, tntID.TenantID()); err != nil {
+	for tntID := range mapRsPfls {
+		if has, err := tpr.dm.HasData(utils.AttributeProfilePrefix, tntID.ID, tntID.Tenant); err != nil {
 			return err
 		} else if !has {
 			tpr.attrTntID = append(tpr.attrTntID, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
-		}
-		// index attribute profile for filters
-		for _, context := range attrP.Contexts {
-			attrKey := utils.ConcatenatedKey(tntID.Tenant, context)
-			if _, has := tpr.attrIndexers[attrKey]; !has {
-				if tpr.attrIndexers[attrKey] = NewReqFilterIndexer(tpr.dm, utils.AttributeProfilePrefix, attrKey); err != nil {
-					return
-				}
-			}
-			for _, fltrID := range attrP.FilterIDs {
-				if strings.HasPrefix(fltrID, utils.MetaPrefix) {
-					inFltr, err := NewInlineFilter(fltrID)
-					if err != nil {
-						return err
-					}
-					fltr, err := inFltr.AsFilter(tntID.Tenant)
-					if err != nil {
-						return err
-					}
-					tpFltr := FilterToTPFilter(fltr)
-					tpr.attrIndexers[attrKey].IndexTPFilter(tpFltr, attrP.ID)
-				} else {
-					tpFltr, has := tpr.filters[utils.TenantID{Tenant: tntID.Tenant, ID: fltrID}]
-					if !has {
-						var fltr *Filter
-						if fltr, err = tpr.dm.GetFilter(tntID.Tenant, fltrID, false, utils.NonTransactional); err != nil {
-							if err == utils.ErrNotFound {
-								err = fmt.Errorf("broken reference to filter: %+v for AttributeProfile: %+v", fltrID, attrP)
-							}
-							return
-						} else {
-							tpFltr = FilterToTPFilter(fltr)
-						}
-					} else {
-						tpr.attrIndexers[attrKey].IndexTPFilter(tpFltr, attrP.ID)
-					}
-				}
-			}
 		}
 	}
 	return nil
@@ -1925,6 +1420,30 @@ func (tpr *TpReader) LoadAttributeProfilesFiltered(tag string) (err error) {
 
 func (tpr *TpReader) LoadAttributeProfiles() error {
 	return tpr.LoadAttributeProfilesFiltered("")
+}
+
+func (tpr *TpReader) LoadChargerProfilesFiltered(tag string) (err error) {
+	rls, err := tpr.lr.GetTPChargers(tpr.tpid, tag)
+	if err != nil {
+		return err
+	}
+	mapChargerProfile := make(map[utils.TenantID]*utils.TPChargerProfile)
+	for _, rl := range rls {
+		mapChargerProfile[utils.TenantID{Tenant: rl.Tenant, ID: rl.ID}] = rl
+	}
+	tpr.chargerProfiles = mapChargerProfile
+	for tntID := range mapChargerProfile {
+		if has, err := tpr.dm.HasData(utils.ChargerProfilePrefix, tntID.ID, tntID.Tenant); err != nil {
+			return err
+		} else if !has {
+			tpr.chargers = append(tpr.chargers, &utils.TenantID{Tenant: tntID.Tenant, ID: tntID.ID})
+		}
+	}
+	return nil
+}
+
+func (tpr *TpReader) LoadChargerProfiles() error {
+	return tpr.LoadChargerProfilesFiltered("")
 }
 
 func (tpr *TpReader) LoadAll() (err error) {
@@ -1949,9 +1468,6 @@ func (tpr *TpReader) LoadAll() (err error) {
 	if err = tpr.LoadSharedGroups(); err != nil && err.Error() != utils.NotFoundCaps {
 		return
 	}
-	if err = tpr.LoadLCRs(); err != nil && err.Error() != utils.NotFoundCaps {
-		return
-	}
 	if err = tpr.LoadActions(); err != nil && err.Error() != utils.NotFoundCaps {
 		return
 	}
@@ -1965,9 +1481,6 @@ func (tpr *TpReader) LoadAll() (err error) {
 		return
 	}
 	if err = tpr.LoadDerivedChargers(); err != nil && err.Error() != utils.NotFoundCaps {
-		return
-	}
-	if err = tpr.LoadCdrStats(); err != nil && err.Error() != utils.NotFoundCaps {
 		return
 	}
 	if err = tpr.LoadUsers(); err != nil && err.Error() != utils.NotFoundCaps {
@@ -1992,6 +1505,9 @@ func (tpr *TpReader) LoadAll() (err error) {
 		return
 	}
 	if err = tpr.LoadAttributeProfiles(); err != nil && err.Error() != utils.NotFoundCaps {
+		return
+	}
+	if err = tpr.LoadChargerProfiles(); err != nil && err.Error() != utils.NotFoundCaps {
 		return
 	}
 	return nil
@@ -2020,8 +1536,13 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	if tpr.dm.dataDB == nil {
 		return errors.New("no database connection")
 	}
-	if flush { // ToDo
-		//tpr.dm.DataDB().Flush("")
+	if flush {
+		// if verbose {
+		// 	log.Print("Flushing database")
+		// }
+		// if err = tpr.dm.DataDB().Flush(""); err != nil {
+		// 	return
+		// }
 	}
 	if verbose {
 		log.Print("Destinations:")
@@ -2040,8 +1561,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		for id, vals := range tpr.revDests {
 			log.Printf("\t %s : %+v", id, vals)
 		}
-	}
-	if verbose {
 		log.Print("Rating Plans:")
 	}
 	for _, rp := range tpr.ratingPlans {
@@ -2137,18 +1656,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		}
 	}
 	if verbose {
-		log.Print("LCR Rules:")
-	}
-	for k, lcr := range tpr.lcrs {
-		err = tpr.dm.SetLCR(lcr, utils.NonTransactional)
-		if err != nil {
-			return err
-		}
-		if verbose {
-			log.Println("\t", k)
-		}
-	}
-	if verbose {
 		log.Print("Actions:")
 	}
 	for k, as := range tpr.actions {
@@ -2182,18 +1689,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		}
 		if verbose {
 			log.Print("\t", key)
-		}
-	}
-	if verbose {
-		log.Print("CDR Stats Queues:")
-	}
-	for _, sq := range tpr.cdrStats {
-		err = tpr.dm.SetCdrStats(sq)
-		if err != nil {
-			return err
-		}
-		if verbose {
-			log.Print("\t", sq.Id)
 		}
 	}
 	if verbose {
@@ -2249,7 +1744,7 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		if err != nil {
 			return err
 		}
-		if err = tpr.dm.SetResourceProfile(rsp, false); err != nil {
+		if err = tpr.dm.SetResourceProfile(rsp, true); err != nil {
 			return err
 		}
 		if verbose {
@@ -2275,7 +1770,7 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		if err != nil {
 			return err
 		}
-		if err = tpr.dm.SetStatQueueProfile(st, false); err != nil {
+		if err = tpr.dm.SetStatQueueProfile(st, true); err != nil {
 			return err
 		}
 		if verbose {
@@ -2312,7 +1807,7 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		if err != nil {
 			return err
 		}
-		if err = tpr.dm.SetThresholdProfile(th, false); err != nil {
+		if err = tpr.dm.SetThresholdProfile(th, true); err != nil {
 			return err
 		}
 		if verbose {
@@ -2339,7 +1834,7 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		if err != nil {
 			return err
 		}
-		if err = tpr.dm.SetSupplierProfile(th, false); err != nil {
+		if err = tpr.dm.SetSupplierProfile(th, true); err != nil {
 			return err
 		}
 		if verbose {
@@ -2355,7 +1850,24 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		if err != nil {
 			return err
 		}
-		if err = tpr.dm.SetAttributeProfile(th, false); err != nil {
+		if err = tpr.dm.SetAttributeProfile(th, true); err != nil {
+			return err
+		}
+		if verbose {
+			log.Print("\t", th.TenantID())
+		}
+	}
+
+	if verbose {
+		log.Print("ChargerProfiles:")
+	}
+	for _, tpTH := range tpr.chargerProfiles {
+
+		th, err := APItoChargerProfile(tpTH, tpr.timezone)
+		if err != nil {
+			return err
+		}
+		if err = tpr.dm.SetChargerProfile(th, true); err != nil {
 			return err
 		}
 		if verbose {
@@ -2398,80 +1910,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 			if err = tpr.dm.DataDB().RebuildReverseForPrefix(utils.REVERSE_ALIASES_PREFIX); err != nil {
 				return err
 			}
-		}
-	}
-	if verbose {
-		log.Print("Indexing resource profiles")
-	}
-	for tenant, fltrIdxer := range tpr.resIndexers {
-		if err := fltrIdxer.StoreIndexes(); err != nil {
-			return err
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(false).Slice())
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(true).Slice())
-		}
-	}
-
-	if verbose {
-		log.Print("StatQueue filter indexes:")
-	}
-	for tenant, fltrIdxer := range tpr.sqpIndexers {
-		if err := fltrIdxer.StoreIndexes(); err != nil {
-			return err
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(false).Slice())
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(true).Slice())
-		}
-	}
-
-	if verbose {
-		log.Print("Threshold filter indexes:")
-	}
-	for tenant, fltrIdxer := range tpr.thdsIndexers {
-		if err := fltrIdxer.StoreIndexes(); err != nil {
-			return err
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(false).Slice())
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(true).Slice())
-		}
-	}
-
-	if verbose {
-		log.Print("Indexing Supplier Profiles")
-	}
-	for tenant, fltrIdxer := range tpr.sppIndexers {
-		if err := fltrIdxer.StoreIndexes(); err != nil {
-			return err
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(false).Slice())
-		}
-		if verbose {
-			log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(true).Slice())
-		}
-	}
-
-	if verbose {
-		log.Print("Indexing Attribute Profiles")
-	}
-	for tntCntx, fltrIdxer := range tpr.attrIndexers {
-		if err := fltrIdxer.StoreIndexes(); err != nil {
-			return err
-		}
-		if verbose {
-			log.Printf("Tenant:Context  %s, keys %+v", tntCntx, fltrIdxer.ChangedKeys(false).Slice())
-		}
-		if verbose {
-			log.Printf("Tenant:Context  %s, keys %+v", tntCntx, fltrIdxer.ChangedKeys(true).Slice())
 		}
 	}
 	return
@@ -2530,10 +1968,6 @@ func (tpr *TpReader) ShowStatistics() {
 	log.Print("Account actions: ", len(tpr.accountActions))
 	// derivedChargers
 	log.Print("Derived Chargers: ", len(tpr.derivedChargers))
-	// lcr rules
-	log.Print("LCR rules: ", len(tpr.lcrs))
-	// cdr stats
-	log.Print("CDR stats: ", len(tpr.cdrStats))
 	// resource profiles
 	log.Print("ResourceProfiles: ", len(tpr.resProfiles))
 	// stats
@@ -2546,6 +1980,8 @@ func (tpr *TpReader) ShowStatistics() {
 	log.Print("SupplierProfiles: ", len(tpr.sppProfiles))
 	// Attribute profiles
 	log.Print("AttributeProfiles: ", len(tpr.attributeProfiles))
+	// Charger profiles
+	log.Print("ChargerProfiles: ", len(tpr.chargerProfiles))
 }
 
 // Returns the identities loaded for a specific category, useful for cache reloads
@@ -2615,14 +2051,6 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.CDR_STATS_PREFIX: // cdr stats
-		keys := make([]string, len(tpr.cdrStats))
-		i := 0
-		for k := range tpr.cdrStats {
-			keys[i] = k
-			i++
-		}
-		return keys, nil
 	case utils.SHARED_GROUP_PREFIX:
 		keys := make([]string, len(tpr.sharedGroups))
 		i := 0
@@ -2658,7 +2086,7 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 	case utils.ResourceProfilesPrefix:
 		keys := make([]string, len(tpr.resProfiles))
 		i := 0
-		for k, _ := range tpr.resProfiles {
+		for k := range tpr.resProfiles {
 			keys[i] = k.TenantID()
 			i++
 		}
@@ -2671,18 +2099,10 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 			i++
 		}
 		return keys, nil
-	case utils.LCR_PREFIX:
-		keys := make([]string, len(tpr.lcrs))
-		i := 0
-		for k := range tpr.lcrs {
-			keys[i] = k
-			i++
-		}
-		return keys, nil
 	case utils.StatQueueProfilePrefix:
 		keys := make([]string, len(tpr.sqProfiles))
 		i := 0
-		for k, _ := range tpr.sqProfiles {
+		for k := range tpr.sqProfiles {
 			keys[i] = k.TenantID()
 			i++
 		}
@@ -2690,7 +2110,7 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 	case utils.ThresholdProfilePrefix:
 		keys := make([]string, len(tpr.thProfiles))
 		i := 0
-		for k, _ := range tpr.thProfiles {
+		for k := range tpr.thProfiles {
 			keys[i] = k.TenantID()
 			i++
 		}
@@ -2706,7 +2126,7 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 	case utils.SupplierProfilePrefix:
 		keys := make([]string, len(tpr.sppProfiles))
 		i := 0
-		for k, _ := range tpr.sppProfiles {
+		for k := range tpr.sppProfiles {
 			keys[i] = k.TenantID()
 			i++
 		}
@@ -2714,7 +2134,15 @@ func (tpr *TpReader) GetLoadedIds(categ string) ([]string, error) {
 	case utils.AttributeProfilePrefix:
 		keys := make([]string, len(tpr.attributeProfiles))
 		i := 0
-		for k, _ := range tpr.attributeProfiles {
+		for k := range tpr.attributeProfiles {
+			keys[i] = k.TenantID()
+			i++
+		}
+		return keys, nil
+	case utils.ChargerProfilePrefix:
+		keys := make([]string, len(tpr.chargerProfiles))
+		i := 0
+		for k := range tpr.chargerProfiles {
 			keys[i] = k.TenantID()
 			i++
 		}
@@ -2766,7 +2194,7 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	if verbose {
 		log.Print("Action Plans:")
 	}
-	for k, _ := range tpr.actionPlans {
+	for k := range tpr.actionPlans {
 		err = tpr.dm.DataDB().RemoveActionPlan(k, utils.NonTransactional)
 		if err != nil {
 			return err
@@ -2784,7 +2212,7 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	if verbose {
 		log.Print("Action Triggers:")
 	}
-	for k, _ := range tpr.actionsTriggers {
+	for k := range tpr.actionsTriggers {
 		err = tpr.dm.RemoveActionTriggers(k, utils.NonTransactional)
 		if err != nil {
 			return err
@@ -2796,20 +2224,8 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	if verbose {
 		log.Print("Shared Groups:")
 	}
-	for k, _ := range tpr.sharedGroups {
+	for k := range tpr.sharedGroups {
 		err = tpr.dm.RemoveSharedGroup(k, utils.NonTransactional)
-		if err != nil {
-			return err
-		}
-		if verbose {
-			log.Println("\t", k)
-		}
-	}
-	if verbose {
-		log.Print("LCR Rules:")
-	}
-	for k, lcr := range tpr.lcrs {
-		err = tpr.dm.RemoveLCR(lcr.GetId(), utils.NonTransactional)
 		if err != nil {
 			return err
 		}
@@ -2820,7 +2236,7 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	if verbose {
 		log.Print("Actions:")
 	}
-	for k, _ := range tpr.actions {
+	for k := range tpr.actions {
 		err = tpr.dm.RemoveActions(k, utils.NonTransactional)
 		if err != nil {
 			return err
@@ -2844,25 +2260,13 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 	if verbose {
 		log.Print("Derived Chargers:")
 	}
-	for key, _ := range tpr.derivedChargers {
+	for key := range tpr.derivedChargers {
 		err = tpr.dm.RemoveDerivedChargers(key, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
 		if verbose {
 			log.Print("\t", key)
-		}
-	}
-	if verbose {
-		log.Print("CDR Stats Queues:")
-	}
-	for _, sq := range tpr.cdrStats {
-		err = tpr.dm.RemoveCdrStatsQueue(sq.Id)
-		if err != nil {
-			return err
-		}
-		if verbose {
-			log.Print("\t", sq.Id)
 		}
 	}
 	if verbose {
@@ -2943,7 +2347,7 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 		log.Print("StatQueues:")
 	}
 	for _, sqTntID := range tpr.statQueues {
-		if err = tpr.dm.RemStatQueue(sqTntID.Tenant, sqTntID.ID, utils.NonTransactional); err != nil {
+		if err = tpr.dm.RemoveStatQueue(sqTntID.Tenant, sqTntID.ID, utils.NonTransactional); err != nil {
 			return
 		}
 		if verbose {
@@ -2984,6 +2388,32 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 			log.Print("\t", tpTH.Tenant)
 		}
 	}
+
+	if verbose {
+		log.Print("AttributeProfiles:")
+	}
+	for _, tpTH := range tpr.attributeProfiles {
+		if err = tpr.dm.RemoveAttributeProfile(tpTH.Tenant, tpTH.ID,
+			utils.NonTransactional, false); err != nil && err.Error() != utils.ErrNotFound.Error() {
+			return err
+		}
+		if verbose {
+			log.Print("\t", tpTH.Tenant)
+		}
+	}
+
+	if verbose {
+		log.Print("ChargerProfiles:")
+	}
+	for _, tpTH := range tpr.chargerProfiles {
+		if err = tpr.dm.RemoveChargerProfile(tpTH.Tenant, tpTH.ID, utils.NonTransactional, false); err != nil {
+			return err
+		}
+		if verbose {
+			log.Print("\t", tpTH.Tenant)
+		}
+	}
+
 	if verbose {
 		log.Print("Timings:")
 	}
@@ -3018,53 +2448,6 @@ func (tpr *TpReader) RemoveFromDatabase(verbose, disable_reverse bool) (err erro
 			}
 			if err = tpr.dm.DataDB().RemoveReverseForPrefix(utils.REVERSE_ALIASES_PREFIX); err != nil {
 				return err
-			}
-		}
-		if verbose {
-			log.Print("Indexing resource profiles")
-		}
-		for tenant, fltrIdxer := range tpr.resIndexers {
-			if err := tpr.dm.RemoveFilterIndexes(GetDBIndexKey(fltrIdxer.itemType, fltrIdxer.dbKeySuffix, false)); err != nil {
-				return err
-			}
-			if verbose {
-				log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(false).Slice())
-			}
-		}
-
-		if verbose {
-			log.Print("StatQueue filter indexes:")
-		}
-		for tenant, fltrIdxer := range tpr.sqpIndexers {
-			if err := tpr.dm.RemoveFilterIndexes(GetDBIndexKey(fltrIdxer.itemType, fltrIdxer.dbKeySuffix, false)); err != nil {
-				return err
-			}
-			if verbose {
-				log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(true).Slice())
-			}
-		}
-
-		if verbose {
-			log.Print("Threshold filter indexes:")
-		}
-		for tenant, fltrIdxer := range tpr.thdsIndexers {
-			if err := tpr.dm.RemoveFilterIndexes(GetDBIndexKey(fltrIdxer.itemType, fltrIdxer.dbKeySuffix, false)); err != nil {
-				return err
-			}
-			if verbose {
-				log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(false).Slice())
-			}
-		}
-
-		if verbose {
-			log.Print("Indexing Supplier Profiles")
-		}
-		for tenant, fltrIdxer := range tpr.sppIndexers {
-			if err := tpr.dm.RemoveFilterIndexes(GetDBIndexKey(fltrIdxer.itemType, fltrIdxer.dbKeySuffix, false)); err != nil {
-				return err
-			}
-			if verbose {
-				log.Printf("Tenant: %s, keys %+v", tenant, fltrIdxer.ChangedKeys(true).Slice())
 			}
 		}
 	}

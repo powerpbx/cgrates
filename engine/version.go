@@ -19,11 +19,37 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/cgrates/cgrates/utils"
 )
+
+var (
+	dataDBVers = map[string]string{
+		utils.Accounts:       "cgr-migrator -migrate=*accounts",
+		utils.Attributes:     "cgr-migrator -migrate=*attributes",
+		utils.Actions:        "cgr-migrator -migrate=*actions",
+		utils.ActionTriggers: "cgr-migrator -migrate=*action_triggers",
+		utils.ActionPlans:    "cgr-migrator -migrate=*action_plans",
+		utils.SharedGroups:   "cgr-migrator -migrate=*shared_groups",
+		utils.Thresholds:     "cgr-migrator -migrate=*thresholds",
+	}
+	storDBVers = map[string]string{
+		utils.CostDetails:   "cgr-migrator -migrate=*cost_details",
+		utils.SessionSCosts: "cgr-migrator -migrate=*sessions_costs",
+	}
+	allVers map[string]string // init will fill this with a merge of data+stor
+)
+
+func init() {
+	allVers = make(map[string]string)
+	for k, v := range dataDBVers {
+		allVers[k] = v
+	}
+	for k, v := range storDBVers {
+		allVers[k] = v
+	}
+}
 
 // Versions will keep trac of various item versions
 type Versions map[string]int64 // map[item]versionNr
@@ -31,78 +57,78 @@ type Versions map[string]int64 // map[item]versionNr
 func CheckVersions(storage Storage) error {
 	// get current db version
 	storType := storage.GetStorageType()
-	x := CurrentDBVersions(storType)
-	dbVersion, err := storage.GetVersions(utils.TBLVersions)
+	isDataDB := isDataDB(storage)
+
+	x := CurrentDBVersions(storType, isDataDB)
+	dbVersion, err := storage.GetVersions("")
 	if err == utils.ErrNotFound {
 		empty, err := storage.IsDBEmpty()
 		if err != nil {
 			return err
 		}
 		if !empty {
-			msg := "Migration needed: please backup cgrates data and run : <cgr-migrator>"
-			return errors.New(msg)
+			return fmt.Errorf("Migration needed: please backup cgrates data and run : <cgr-migrator>")
 		}
-		// no data, write version
-		if err := SetDBVersions(storage); err != nil {
+		// no data, safe to write version
+		if err := OverwriteDBVersions(storage); err != nil {
 			return err
 		}
-
 	} else {
 		// comparing versions
-		message := dbVersion.Compare(x, storType)
-		if len(message) > 2 {
-			// write the new values
-			msg := "Migration needed: please backup cgr data and run : <" + message + ">"
-			return errors.New(msg)
+		message := dbVersion.Compare(x, storType, isDataDB)
+		if message != "" {
+			return fmt.Errorf("Migration needed: please backup cgr data and run : <%s>", message)
 		}
 	}
 	return nil
 }
 
-func SetDBVersions(storage Storage) error {
-	storType := storage.GetStorageType()
-	x := CurrentDBVersions(storType)
-	// no data, write version
-	if err := storage.SetVersions(x, false); err != nil {
-		utils.Logger.Warning(fmt.Sprintf("Could not write current version to db: %v", err))
+// relevant only for mongoDB
+func isDataDB(storage Storage) bool {
+	conv, ok := storage.(*MongoStorage)
+	if !ok {
+		return false
 	}
-	return nil
-
+	return conv.IsDataDB()
 }
 
-func (vers Versions) Compare(curent Versions, storType string) string {
-	var x map[string]string
-	m := map[string]string{
-		utils.Accounts:       "cgr-migrator -migrate=*accounts",
-		utils.Actions:        "cgr-migrator -migrate=*actions",
-		utils.ActionTriggers: "cgr-migrator -migrate=*action_triggers",
-		utils.ActionPlans:    "cgr-migrator -migrate=*action_plans",
-		utils.SharedGroups:   "cgr-migrator -migrate=*shared_groups",
-		utils.COST_DETAILS:   "cgr-migrator -migrate=*cost_details",
+func setDBVersions(storage Storage, overwrite bool) (err error) {
+	x := CurrentDBVersions(storage.GetStorageType(), isDataDB(storage))
+	// no data, write version
+	if err = storage.SetVersions(x, overwrite); err != nil {
+		utils.Logger.Warning(fmt.Sprintf("Could not write current version to db: %v", err))
+		return err
 	}
-	data := map[string]string{
-		utils.Accounts:       "cgr-migrator -migrate=*accounts",
-		utils.Actions:        "cgr-migrator -migrate=*actions",
-		utils.ActionTriggers: "cgr-migrator -migrate=*action_triggers",
-		utils.ActionPlans:    "cgr-migrator -migrate=*action_plans",
-		utils.SharedGroups:   "cgr-migrator -migrate=*shared_groups",
-	}
-	stor := map[string]string{
-		utils.COST_DETAILS: "cgr-migrator -migrate=*cost_details",
-	}
+	return
+}
+
+func SetDBVersions(storage Storage) (err error) {
+	return setDBVersions(storage, false)
+}
+
+func OverwriteDBVersions(storage Storage) (err error) {
+	return setDBVersions(storage, true)
+}
+
+func (vers Versions) Compare(curent Versions, storType string, isDataDB bool) string {
+	var message map[string]string
 	switch storType {
 	case utils.MONGO:
-		x = m
-	case utils.POSTGRES, utils.MYSQL:
-		x = stor
-	case utils.REDIS:
-		x = data
+		if isDataDB {
+			message = dataDBVers
+		} else {
+			message = storDBVers
+		}
 	case utils.MAPSTOR:
-		x = m
+		message = allVers
+	case utils.POSTGRES, utils.MYSQL:
+		message = storDBVers
+	case utils.REDIS:
+		message = dataDBVers
 	}
-	for y, val := range x {
-		if vers[y] != curent[y] {
-			return val
+	for subsis, reason := range message {
+		if vers[subsis] != curent[subsis] {
+			return reason
 		}
 	}
 	return ""
@@ -116,8 +142,9 @@ func CurrentDataDBVersions() Versions {
 		utils.ActionTriggers:      2,
 		utils.ActionPlans:         2,
 		utils.SharedGroups:        2,
-		utils.Thresholds:          2,
+		utils.Thresholds:          3,
 		utils.Suppliers:           1,
+		utils.Attributes:          2,
 		utils.Timing:              1,
 		utils.RQF:                 1,
 		utils.Resource:            1,
@@ -132,12 +159,15 @@ func CurrentDataDBVersions() Versions {
 		utils.LCR:                 1,
 		utils.RatingPlan:          1,
 		utils.RatingProfile:       1,
+		utils.Chargers:            1,
 	}
 }
 
 func CurrentStorDBVersions() Versions {
 	return Versions{
-		utils.COST_DETAILS:       2,
+		utils.CostDetails:        2,
+		utils.SessionSCosts:      3,
+		utils.CDRs:               2,
 		utils.TpRatingPlans:      1,
 		utils.TpFilters:          1,
 		utils.TpDestinationRates: 1,
@@ -162,13 +192,13 @@ func CurrentStorDBVersions() Versions {
 		utils.TpDestinations:     1,
 		utils.TpRatingPlan:       1,
 		utils.TpRatingProfile:    1,
+		utils.TpChargers:         1,
 	}
 }
 
-func CurrentDBVersions(storType string) Versions {
+func CurrentAllDBVersions() Versions {
 	dataDbVersions := CurrentDataDBVersions()
 	storDbVersions := CurrentStorDBVersions()
-
 	allVersions := make(Versions)
 	for k, v := range dataDbVersions {
 		allVersions[k] = v
@@ -176,14 +206,22 @@ func CurrentDBVersions(storType string) Versions {
 	for k, v := range storDbVersions {
 		allVersions[k] = v
 	}
+	return allVersions
+}
 
+func CurrentDBVersions(storType string, isDataDB bool) Versions {
 	switch storType {
-	case utils.MONGO, utils.MAPSTOR:
-		return allVersions
+	case utils.MONGO:
+		if isDataDB {
+			return CurrentDataDBVersions()
+		}
+		return CurrentStorDBVersions()
+	case utils.MAPSTOR:
+		return CurrentAllDBVersions()
 	case utils.POSTGRES, utils.MYSQL:
-		return storDbVersions
+		return CurrentStorDBVersions()
 	case utils.REDIS:
-		return dataDbVersions
+		return CurrentDataDBVersions()
 	}
 	return nil
 }

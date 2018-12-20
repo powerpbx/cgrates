@@ -20,41 +20,35 @@ package agents
 
 import (
 	"fmt"
-	"strconv"
-	"time"
 
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/radigo"
 	"github.com/cgrates/rpcclient"
 )
 
 const (
-	MetaRadReplyCode    = "*radReplyCode"
-	MetaRadAuth         = "*radAuthReq"
-	MetaRadAcctStart    = "*radAcctStart"
-	MetaRadAcctUpdate   = "*radAcctUpdate"
-	MetaRadAcctStop     = "*radAcctStop"
-	MetaRadAcctEvent    = "*radAcctEvent"
-	MetaCGRReply        = "*cgrReply"
-	MetaCGRMaxUsage     = "*cgrMaxUsage"
-	MetaCGRError        = "*cgrError"
-	MetaRadReqType      = "*radReqType"
-	EvRadiusReq         = "RADIUS_REQUEST"
-	MetaUsageDifference = "*usage_difference"
+	MetaRadReqType   = "*radReqType"
+	MetaRadAuth      = "*radAuth"
+	MetaRadAcctStart = "*radAcctStart"
+	MetaRadReplyCode = "*radReplyCode"
 )
 
-func NewRadiusAgent(cgrCfg *config.CGRConfig, smg rpcclient.RpcClientConnection) (ra *RadiusAgent, err error) {
+func NewRadiusAgent(cgrCfg *config.CGRConfig, filterS *engine.FilterS,
+	sessionS rpcclient.RpcClientConnection) (ra *RadiusAgent, err error) {
 	dts := make(map[string]*radigo.Dictionary, len(cgrCfg.RadiusAgentCfg().ClientDictionaries))
 	for clntID, dictPath := range cgrCfg.RadiusAgentCfg().ClientDictionaries {
-		utils.Logger.Info(fmt.Sprintf(
-			"<RadiusAgent> Loading dictionary for clientID: <%s> out of path <%s>", clntID, dictPath))
+		utils.Logger.Info(
+			fmt.Sprintf("<%s> loading dictionary for clientID: <%s> out of path <%s>",
+				utils.RadiusAgent, clntID, dictPath))
 		if dts[clntID], err = radigo.NewDictionaryFromFolderWithRFC2865(dictPath); err != nil {
 			return
 		}
 	}
 	dicts := radigo.NewDictionaries(dts)
-	ra = &RadiusAgent{cgrCfg: cgrCfg, smg: smg}
+	ra = &RadiusAgent{cgrCfg: cgrCfg, filterS: filterS, sessionS: sessionS}
 	secrets := radigo.NewSecrets(cgrCfg.RadiusAgentCfg().ClientSecrets)
 	ra.rsAuth = radigo.NewServer(cgrCfg.RadiusAgentCfg().ListenNet,
 		cgrCfg.RadiusAgentCfg().ListenAuth, secrets, dicts,
@@ -65,28 +59,32 @@ func NewRadiusAgent(cgrCfg *config.CGRConfig, smg rpcclient.RpcClientConnection)
 		map[radigo.PacketCode]func(*radigo.Packet) (*radigo.Packet, error){
 			radigo.AccountingRequest: ra.handleAcct}, nil)
 	return
-
 }
 
 type RadiusAgent struct {
-	cgrCfg *config.CGRConfig             // reference for future config reloads
-	smg    rpcclient.RpcClientConnection // Connection towards CGR-SMG component
-	rsAuth *radigo.Server
-	rsAcct *radigo.Server
+	cgrCfg   *config.CGRConfig             // reference for future config reloads
+	sessionS rpcclient.RpcClientConnection // Connection towards CGR-SessionS component
+	filterS  *engine.FilterS
+	rsAuth   *radigo.Server
+	rsAcct   *radigo.Server
 }
 
 // handleAuth handles RADIUS Authorization request
 func (ra *RadiusAgent) handleAuth(req *radigo.Packet) (rpl *radigo.Packet, err error) {
-	req.SetAVPValues() // populate string values in AVPs
-	procVars := map[string]string{
-		MetaRadReqType: MetaRadAuth,
-	}
+	req.SetAVPValues()             // populate string values in AVPs
+	dcdr := newRADataProvider(req) // dcdr will provide information from request
 	rpl = req.Reply()
 	rpl.Code = radigo.AccessAccept
 	var processed bool
 	for _, reqProcessor := range ra.cgrCfg.RadiusAgentCfg().RequestProcessors {
+		agReq := newAgentRequest(dcdr, nil, nil,
+			reqProcessor.Tenant, ra.cgrCfg.GeneralCfg().DefaultTenant,
+			utils.FirstNonEmpty(reqProcessor.Timezone,
+				config.CgrConfig().GeneralCfg().DefaultTimezone),
+			ra.filterS)
+		agReq.Vars.Set([]string{MetaRadReqType}, utils.StringToInterface(MetaRadAuth), false, true)
 		var lclProcessed bool
-		if lclProcessed, err = ra.processRequest(reqProcessor, req, procVars, rpl); lclProcessed {
+		if lclProcessed, err = ra.processRequest(reqProcessor, agReq, rpl); lclProcessed {
 			processed = lclProcessed
 		}
 		if err != nil || (lclProcessed && !reqProcessor.ContinueOnSuccess) {
@@ -94,12 +92,12 @@ func (ra *RadiusAgent) handleAuth(req *radigo.Packet) (rpl *radigo.Packet, err e
 		}
 	}
 	if err != nil {
-		utils.Logger.Err(fmt.Sprintf("<RadiusAgent> error: <%s> ignoring request: %s, process vars: %+v",
-			err.Error(), utils.ToJSON(req), procVars))
+		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s> ignoring request: %s",
+			utils.RadiusAgent, err.Error(), utils.ToJSON(req)))
 		return nil, nil
 	} else if !processed {
-		utils.Logger.Err(fmt.Sprintf("<RadiusAgent> No request processor enabled, ignoring request %s, process vars: %+v",
-			utils.ToJSON(req), procVars))
+		utils.Logger.Err(fmt.Sprintf("<%s> no request processor enabled, ignoring request %s",
+			utils.RadiusAgent, utils.ToJSON(req)))
 		return nil, nil
 	}
 	return
@@ -108,24 +106,19 @@ func (ra *RadiusAgent) handleAuth(req *radigo.Packet) (rpl *radigo.Packet, err e
 // handleAcct handles RADIUS Accounting request
 // supports: Acct-Status-Type = Start, Interim-Update, Stop
 func (ra *RadiusAgent) handleAcct(req *radigo.Packet) (rpl *radigo.Packet, err error) {
-	req.SetAVPValues() // populate string values in AVPs
-	procVars := make(map[string]string)
-	if avps := req.AttributesWithName("Acct-Status-Type", ""); len(avps) != 0 { // populate accounting type
-		switch avps[0].GetStringValue() { // first AVP found will give out the type of accounting
-		case "Start":
-			procVars[MetaRadReqType] = MetaRadAcctStart
-		case "Interim-Update":
-			procVars[MetaRadReqType] = MetaRadAcctUpdate
-		case "Stop":
-			procVars[MetaRadReqType] = MetaRadAcctStop
-		}
-	}
+	req.SetAVPValues()             // populate string values in AVPs
+	dcdr := newRADataProvider(req) // dcdr will provide information from request
 	rpl = req.Reply()
 	rpl.Code = radigo.AccountingResponse
 	var processed bool
 	for _, reqProcessor := range ra.cgrCfg.RadiusAgentCfg().RequestProcessors {
+		agReq := newAgentRequest(dcdr, nil, nil,
+			reqProcessor.Tenant, ra.cgrCfg.GeneralCfg().DefaultTenant,
+			utils.FirstNonEmpty(reqProcessor.Timezone,
+				config.CgrConfig().GeneralCfg().DefaultTimezone),
+			ra.filterS)
 		var lclProcessed bool
-		if lclProcessed, err = ra.processRequest(reqProcessor, req, procVars, rpl); lclProcessed {
+		if lclProcessed, err = ra.processRequest(reqProcessor, agReq, rpl); lclProcessed {
 			processed = lclProcessed
 		}
 		if err != nil || (lclProcessed && !reqProcessor.ContinueOnSuccess) {
@@ -133,12 +126,12 @@ func (ra *RadiusAgent) handleAcct(req *radigo.Packet) (rpl *radigo.Packet, err e
 		}
 	}
 	if err != nil {
-		utils.Logger.Err(fmt.Sprintf("<RadiusAgent> error: <%s> ignoring request: %s, process vars: %+v",
-			err.Error(), utils.ToJSON(req), procVars))
+		utils.Logger.Err(fmt.Sprintf("<%s> error: <%s> ignoring request: %s, ",
+			utils.RadiusAgent, err.Error(), utils.ToJSON(req)))
 		return nil, nil
 	} else if !processed {
-		utils.Logger.Err(fmt.Sprintf("<RadiusAgent> No request processor enabled, ignoring request %s, process vars: %+v",
-			utils.ToJSON(req), procVars))
+		utils.Logger.Err(fmt.Sprintf("<%s> no request processor enabled, ignoring request %s",
+			utils.RadiusAgent, utils.ToJSON(req)))
 		return nil, nil
 	}
 	return
@@ -146,83 +139,136 @@ func (ra *RadiusAgent) handleAcct(req *radigo.Packet) (rpl *radigo.Packet, err e
 
 // processRequest represents one processor processing the request
 func (ra *RadiusAgent) processRequest(reqProcessor *config.RARequestProcessor,
-	req *radigo.Packet, processorVars map[string]string, reply *radigo.Packet) (processed bool, err error) {
-	passesAllFilters := true
-	for _, fldFilter := range reqProcessor.RequestFilter {
-		if !radPassesFieldFilter(req, processorVars, fldFilter) {
-			passesAllFilters = false
+	agReq *AgentRequest, rply *radigo.Packet) (processed bool, err error) {
+	if pass, err := ra.filterS.Pass(agReq.tenant,
+		reqProcessor.Filters, agReq); err != nil || !pass {
+		return pass, err
+	}
+	if agReq.CGRRequest, err = agReq.AsNavigableMap(reqProcessor.RequestFields); err != nil {
+		return
+	}
+	cgrEv := agReq.CGRRequest.AsCGREvent(agReq.tenant, utils.NestingSep)
+	var reqType string
+	for _, typ := range []string{
+		utils.MetaDryRun, utils.MetaAuth,
+		utils.MetaInitiate, utils.MetaUpdate,
+		utils.MetaTerminate, utils.MetaEvent,
+		utils.MetaCDRs} {
+		if reqProcessor.Flags.HasKey(typ) { // request type is identified through flags
+			reqType = typ
 			break
 		}
 	}
-	if !passesAllFilters { // Not going with this processor further
-		return false, nil
+	if reqProcessor.Flags.HasKey(utils.MetaLog) {
+		utils.Logger.Info(
+			fmt.Sprintf("<%s> LOG, processorID: %s, radius message: %s",
+				utils.RadiusAgent, reqProcessor.Id, agReq.Request.String()))
 	}
-	for k, v := range reqProcessor.Flags { // update processorVars with flags from processor
-		processorVars[k] = strconv.FormatBool(v)
+	switch reqType {
+	default:
+		return false, fmt.Errorf("unknown request type: <%s>", reqType)
+	case utils.MetaDryRun:
+		utils.Logger.Info(
+			fmt.Sprintf("<%s> DRY_RUN, processorID: %s, CGREvent: %s",
+				utils.RadiusAgent, reqProcessor.Id, utils.ToJSON(cgrEv)))
+	case utils.MetaAuth:
+		authArgs := sessions.NewV1AuthorizeArgs(
+			reqProcessor.Flags.HasKey(utils.MetaAttributes),
+			reqProcessor.Flags.HasKey(utils.MetaResources),
+			reqProcessor.Flags.HasKey(utils.MetaAccounts),
+			reqProcessor.Flags.HasKey(utils.MetaThresholds),
+			reqProcessor.Flags.HasKey(utils.MetaStats),
+			reqProcessor.Flags.HasKey(utils.MetaSuppliers),
+			reqProcessor.Flags.HasKey(utils.MetaSuppliersIgnoreErrors),
+			reqProcessor.Flags.HasKey(utils.MetaSuppliersEventCost),
+			*cgrEv)
+		var authReply sessions.V1AuthorizeReply
+		err = ra.sessionS.Call(utils.SessionSv1AuthorizeEvent,
+			authArgs, &authReply)
+		if agReq.CGRReply, err = NewCGRReply(&authReply, err); err != nil {
+			return
+		}
+	case utils.MetaInitiate:
+		initArgs := sessions.NewV1InitSessionArgs(
+			reqProcessor.Flags.HasKey(utils.MetaAttributes),
+			reqProcessor.Flags.HasKey(utils.MetaResources),
+			reqProcessor.Flags.HasKey(utils.MetaAccounts),
+			reqProcessor.Flags.HasKey(utils.MetaThresholds),
+			reqProcessor.Flags.HasKey(utils.MetaStats), *cgrEv)
+		var initReply sessions.V1InitSessionReply
+		err = ra.sessionS.Call(utils.SessionSv1InitiateSession,
+			initArgs, &initReply)
+		if agReq.CGRReply, err = NewCGRReply(&initReply, err); err != nil {
+			return
+		}
+	case utils.MetaUpdate:
+		updateArgs := sessions.NewV1UpdateSessionArgs(
+			reqProcessor.Flags.HasKey(utils.MetaAttributes),
+			reqProcessor.Flags.HasKey(utils.MetaAccounts), *cgrEv)
+		var updateReply sessions.V1UpdateSessionReply
+		err = ra.sessionS.Call(utils.SessionSv1UpdateSession,
+			updateArgs, &updateReply)
+		if agReq.CGRReply, err = NewCGRReply(&updateReply, err); err != nil {
+			return
+		}
+	case utils.MetaTerminate:
+		terminateArgs := sessions.NewV1TerminateSessionArgs(
+			reqProcessor.Flags.HasKey(utils.MetaAccounts),
+			reqProcessor.Flags.HasKey(utils.MetaResources),
+			reqProcessor.Flags.HasKey(utils.MetaThresholds),
+			reqProcessor.Flags.HasKey(utils.MetaStats), *cgrEv)
+		var tRply string
+		err = ra.sessionS.Call(utils.SessionSv1TerminateSession,
+			terminateArgs, &tRply)
+		if agReq.CGRReply, err = NewCGRReply(nil, err); err != nil {
+			return
+		}
+	case utils.MetaEvent:
+		evArgs := sessions.NewV1ProcessEventArgs(
+			reqProcessor.Flags.HasKey(utils.MetaResources),
+			reqProcessor.Flags.HasKey(utils.MetaAccounts),
+			reqProcessor.Flags.HasKey(utils.MetaAttributes),
+			reqProcessor.Flags.HasKey(utils.MetaThresholds),
+			reqProcessor.Flags.HasKey(utils.MetaStats),
+			*cgrEv)
+		var eventRply sessions.V1ProcessEventReply
+		err = ra.sessionS.Call(utils.SessionSv1ProcessEvent,
+			evArgs, &eventRply)
+		if utils.ErrHasPrefix(err, utils.RalsErrorPrfx) {
+			cgrEv.Event[utils.Usage] = 0 // avoid further debits
+		} else if eventRply.MaxUsage != nil {
+			cgrEv.Event[utils.Usage] = *eventRply.MaxUsage // make sure the CDR reflects the debit
+		}
+		if agReq.CGRReply, err = NewCGRReply(&eventRply, err); err != nil {
+			return
+		}
+	case utils.MetaCDRs: // allow this method
 	}
-	if reqProcessor.DryRun {
-		utils.Logger.Info(fmt.Sprintf("<RadiusAgent> DRY_RUN, RADIUS request: %s", utils.ToJSON(req)))
-		utils.Logger.Info(fmt.Sprintf("<RadiusAgent> DRY_RUN, process variabiles: %+v", processorVars))
+	// separate request so we can capture the Terminate/Event also here
+	if reqProcessor.Flags.HasKey(utils.MetaCDRs) {
+		var rplyCDRs string
+		if err = ra.sessionS.Call(utils.SessionSv1ProcessCDR,
+			cgrEv, &rplyCDRs); err != nil {
+			agReq.CGRReply.Set([]string{utils.Error}, err.Error(), false, false)
+		}
 	}
-	smgEv, err := radReqAsSMGEvent(req, processorVars, reqProcessor.Flags, reqProcessor.RequestFields)
-	if err != nil {
+	if nM, err := agReq.AsNavigableMap(reqProcessor.ReplyFields); err != nil {
+		return false, err
+	} else {
+		agReq.Reply.Merge(nM)
+	}
+	if err := radReplyAppendAttributes(rply, agReq, reqProcessor.ReplyFields); err != nil {
 		return false, err
 	}
-	if reqProcessor.DryRun {
-		utils.Logger.Info(fmt.Sprintf("<RadiusAgent> DRY_RUN, SMGEvent: %+v", smgEv))
-	} else { // process with RPC
-		var maxUsage time.Duration
-		var cgrReply interface{} // so we can store it in processorsVars
-		switch processorVars[MetaRadReqType] {
-		case MetaRadAuth: // auth attempt, make sure that MaxUsage is enough
-			if err = ra.smg.Call("SMGenericV2.GetMaxUsage", smgEv, &maxUsage); err != nil {
-				processorVars[MetaCGRError] = err.Error()
-				return
-			}
-			if reqUsageStr, has := smgEv[utils.Usage]; !has { // usage was not requested, decide based on 0
-				if maxUsage == 0 {
-					reply.Code = radigo.AccessReject
-				}
-			} else { // usage requested
-				if reqUsage, err := utils.ParseDurationWithSecs(reqUsageStr.(string)); err != nil {
-					processorVars[MetaCGRError] = err.Error()
-					return false, err
-				} else if reqUsage < maxUsage {
-					reply.Code = radigo.AccessReject
-				}
-			}
-		case MetaRadAcctStart:
-			err = ra.smg.Call("SMGenericV2.InitiateSession", smgEv, &maxUsage)
-			cgrReply = maxUsage
-		case MetaRadAcctUpdate:
-			err = ra.smg.Call("SMGenericV2.UpdateSession", smgEv, &maxUsage)
-			cgrReply = maxUsage
-		case MetaRadAcctStop:
-			var rpl string
-			err = ra.smg.Call("SMGenericV1.TerminateSession", smgEv, &rpl)
-			cgrReply = rpl
-			if ra.cgrCfg.RadiusAgentCfg().CreateCDR {
-				if errCdr := ra.smg.Call("SMGenericV1.ProcessCDR", smgEv, &rpl); errCdr != nil {
-					err = errCdr
-				} else {
-					cgrReply = rpl
-				}
-			}
-		default:
-			err = fmt.Errorf("unsupported radius request type: <%s>", processorVars[MetaRadReqType])
-		}
-		if err != nil {
-			processorVars[MetaCGRError] = err.Error()
-			return false, err
-		}
-		processorVars[MetaCGRReply] = utils.ToJSON(cgrReply)
-		processorVars[MetaCGRMaxUsage] = strconv.Itoa(int(maxUsage))
+	if reqProcessor.Flags.HasKey(utils.MetaLog) {
+		utils.Logger.Info(
+			fmt.Sprintf("<%s> LOG, Radius reply: %s",
+				utils.RadiusAgent, utils.ToJSON(rply)))
 	}
-	if err := radReplyAppendAttributes(reply, processorVars, reqProcessor.ReplyFields); err != nil {
-		return false, err
-	}
-	if reqProcessor.DryRun {
-		utils.Logger.Info(fmt.Sprintf("<RadiusAgent> DRY_RUN, radius reply: %s", reply))
+	if reqType == utils.MetaDryRun {
+		utils.Logger.Info(
+			fmt.Sprintf("<%s> DRY_RUN, Radius reply: %s",
+				utils.RadiusAgent, utils.ToJSON(rply)))
 	}
 	return true, nil
 }

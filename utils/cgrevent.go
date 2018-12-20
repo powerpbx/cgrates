@@ -34,6 +34,11 @@ type CGREvent struct {
 	Event   map[string]interface{}
 }
 
+func (ev *CGREvent) HasField(fldName string) (has bool) {
+	_, has = ev.Event[fldName]
+	return
+}
+
 func (ev *CGREvent) CheckMandatoryFields(fldNames []string) error {
 	for _, fldName := range fldNames {
 		if _, has := ev.Event[fldName]; !has {
@@ -49,8 +54,8 @@ func (ev *CGREvent) FieldAsString(fldName string) (val string, err error) {
 	if !has {
 		return "", ErrNotFound
 	}
-	val, canCast := CastFieldIfToString(iface)
-	if !canCast {
+	val, err = IfaceAsString(iface)
+	if err != nil {
 		return "", fmt.Errorf("cannot cast %s to string", fldName)
 	}
 	return val, nil
