@@ -23,6 +23,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/guardian"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/gorhill/cronexpr"
@@ -36,6 +37,7 @@ type ActionTiming struct {
 	Uuid         string
 	Timing       *RateInterval
 	ActionsID    string
+	ExtraData    interface{}
 	Weight       float64
 	actions      Actions
 	accountIDs   utils.StringMap // copy of action plans accounts
@@ -317,7 +319,8 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 					a.Balance = &BalanceFilter{}
 				}
 				if a.ExpirationString != "" { // if it's *unlimited then it has to be zero time
-					if expDate, parseErr := utils.ParseDate(a.ExpirationString); parseErr == nil {
+					if expDate, parseErr := utils.ParseTimeDetectLayout(a.ExpirationString,
+						config.CgrConfig().GeneralCfg().DefaultTimezone); parseErr == nil {
 						a.Balance.ExpirationDate = &time.Time{}
 						*a.Balance.ExpirationDate = expDate
 					}
@@ -331,7 +334,7 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 					transactionFailed = true
 					break
 				}
-				if err := actionFunction(acc, nil, a, aac); err != nil {
+				if err := actionFunction(acc, a, aac, at.ExtraData); err != nil {
 					utils.Logger.Err(fmt.Sprintf("Error executing action %s: %v!", a.ActionType, err))
 					transactionFailed = true
 					if failedActions != nil {
@@ -354,7 +357,8 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 	}
 	if len(at.accountIDs) == 0 { // action timing executing without accounts
 		for _, a := range aac {
-			if expDate, parseErr := utils.ParseDate(a.ExpirationString); (a.Balance == nil || a.Balance.EmptyExpirationDate()) &&
+			if expDate, parseErr := utils.ParseTimeDetectLayout(a.ExpirationString,
+				config.CgrConfig().GeneralCfg().DefaultTimezone); (a.Balance == nil || a.Balance.EmptyExpirationDate()) &&
 				parseErr == nil && !expDate.IsZero() {
 				a.Balance.ExpirationDate = &time.Time{}
 				*a.Balance.ExpirationDate = expDate
@@ -370,7 +374,7 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
 				}
 				break
 			}
-			if err := actionFunction(nil, nil, a, aac); err != nil {
+			if err := actionFunction(nil, a, aac, at.ExtraData); err != nil {
 				utils.Logger.Err(fmt.Sprintf("Error executing accountless action %s: %v!", a.ActionType, err))
 				if failedActions != nil {
 					go func() { failedActions <- a }()

@@ -34,15 +34,18 @@ import (
 )
 
 func InitDataDb(cfg *config.CGRConfig) error {
-	dm, err := ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort, cfg.DataDbName,
-		cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), cfg.LoadHistorySize)
+	dm, err := ConfigureDataStorage(cfg.DataDbCfg().DataDbType,
+		cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort,
+		cfg.DataDbCfg().DataDbName, cfg.DataDbCfg().DataDbUser,
+		cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding,
+		cfg.CacheCfg(), cfg.DataDbCfg().DataDbSentinelName)
 	if err != nil {
 		return err
 	}
 	if err := dm.DataDB().Flush(""); err != nil {
 		return err
 	}
-	dm.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	//dm.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	//	Write version before starting
 	if err := SetDBVersions(dm.dataDB); err != nil {
 		return err
@@ -51,16 +54,21 @@ func InitDataDb(cfg *config.CGRConfig) error {
 }
 
 func InitStorDb(cfg *config.CGRConfig) error {
-	x := []string{utils.MYSQL, utils.POSTGRES}
-	storDb, err := ConfigureLoadStorage(cfg.StorDBType, cfg.StorDBHost, cfg.StorDBPort, cfg.StorDBName, cfg.StorDBUser, cfg.StorDBPass, cfg.DBDataEncoding,
-		cfg.StorDBMaxOpenConns, cfg.StorDBMaxIdleConns, cfg.StorDBConnMaxLifetime, cfg.StorDBCDRSIndexes)
+	storDb, err := ConfigureLoadStorage(cfg.StorDbCfg().StorDBType,
+		cfg.StorDbCfg().StorDBHost, cfg.StorDbCfg().StorDBPort,
+		cfg.StorDbCfg().StorDBName, cfg.StorDbCfg().StorDBUser,
+		cfg.StorDbCfg().StorDBPass, cfg.GeneralCfg().DBDataEncoding,
+		cfg.StorDbCfg().StorDBMaxOpenConns, cfg.StorDbCfg().StorDBMaxIdleConns,
+		cfg.StorDbCfg().StorDBConnMaxLifetime, cfg.StorDbCfg().StorDBCDRSIndexes)
 	if err != nil {
 		return err
 	}
-	if err := storDb.Flush(path.Join(cfg.DataFolderPath, "storage", cfg.StorDBType)); err != nil {
+	if err := storDb.Flush(path.Join(cfg.DataFolderPath, "storage",
+		cfg.StorDbCfg().StorDBType)); err != nil {
 		return err
 	}
-	if utils.IsSliceMember(x, cfg.StorDBType) {
+	if utils.IsSliceMember([]string{utils.MYSQL, utils.POSTGRES, utils.MONGO},
+		cfg.StorDbCfg().StorDBType) {
 		if err := SetDBVersions(storDb); err != nil {
 			return err
 		}
@@ -86,17 +94,18 @@ func StartEngine(cfgPath string, waitEngine int) (*exec.Cmd, error) {
 	var connected bool
 	for i := 0; i < 200; i++ {
 		time.Sleep(time.Duration(fib()) * time.Millisecond)
-		if _, err := jsonrpc.Dial("tcp", cfg.RPCJSONListen); err != nil {
+		if _, err := jsonrpc.Dial("tcp", cfg.ListenCfg().RPCJSONListen); err != nil {
 			utils.Logger.Warning(fmt.Sprintf("Error <%s> when opening test connection to: <%s>",
-				err.Error(), cfg.RPCJSONListen))
+				err.Error(), cfg.ListenCfg().RPCJSONListen))
 		} else {
 			connected = true
 			break
 		}
 	}
 	if !connected {
-		return nil, fmt.Errorf("engine did not open port <%d>", cfg.RPCJSONListen)
+		return nil, fmt.Errorf("engine did not open port <%s>", cfg.ListenCfg().RPCJSONListen)
 	}
+	time.Sleep(time.Duration(waitEngine) * time.Millisecond) // wait for rater to register all subsistems
 	return engine, nil
 }
 
@@ -122,13 +131,11 @@ func LoadTariffPlanFromFolder(tpPath, timezone string, dm *DataManager, disable_
 		path.Join(tpPath, utils.RATING_PLANS_CSV),
 		path.Join(tpPath, utils.RATING_PROFILES_CSV),
 		path.Join(tpPath, utils.SHARED_GROUPS_CSV),
-		path.Join(tpPath, utils.LCRS_CSV),
 		path.Join(tpPath, utils.ACTIONS_CSV),
 		path.Join(tpPath, utils.ACTION_PLANS_CSV),
 		path.Join(tpPath, utils.ACTION_TRIGGERS_CSV),
 		path.Join(tpPath, utils.ACCOUNT_ACTIONS_CSV),
 		path.Join(tpPath, utils.DERIVED_CHARGERS_CSV),
-		path.Join(tpPath, utils.CDR_STATS_CSV),
 
 		path.Join(tpPath, utils.USERS_CSV),
 		path.Join(tpPath, utils.ALIASES_CSV),
@@ -138,6 +145,7 @@ func LoadTariffPlanFromFolder(tpPath, timezone string, dm *DataManager, disable_
 		path.Join(tpPath, utils.FiltersCsv),
 		path.Join(tpPath, utils.SuppliersCsv),
 		path.Join(tpPath, utils.AttributesCsv),
+		path.Join(tpPath, utils.ChargersCsv),
 	), "", timezone)
 	if err := loader.LoadAll(); err != nil {
 		return utils.NewErrServerError(err)
@@ -200,6 +208,14 @@ func PjsuaCallUri(acnt *PjsuaAccount, dstUri, outboundUri string, callDur time.D
 
 func KillProcName(procName string, waitMs int) error {
 	if err := exec.Command("pkill", procName).Run(); err != nil {
+		return err
+	}
+	time.Sleep(time.Duration(waitMs) * time.Millisecond)
+	return nil
+}
+
+func ForceKillProcName(procName string, waitMs int) error {
+	if err := exec.Command("pkill", "-9", procName).Run(); err != nil {
 		return err
 	}
 	time.Sleep(time.Duration(waitMs) * time.Millisecond)

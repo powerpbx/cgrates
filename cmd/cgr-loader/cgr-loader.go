@@ -77,59 +77,163 @@ func main() {
 		fmt.Println(utils.GetCGRVersion())
 		return
 	}
-	var errDataDB, errStorDb, err error
-	var dm *engine.DataManager
-	var storDb engine.LoadStorage
-	var rater, cdrstats, users rpcclient.RpcClientConnection
-	var loader engine.LoadReader
 
-	*datadb_type = strings.TrimPrefix(*datadb_type, "*")
-	*datadb_host = config.DBDefaults.DBHost(*datadb_type, *datadb_host)
-	*datadb_port = config.DBDefaults.DBPort(*datadb_type, *datadb_port)
-	*datadb_name = config.DBDefaults.DBName(*datadb_type, *datadb_name)
-	*datadb_user = config.DBDefaults.DBUser(*datadb_type, *datadb_user)
-	*datadb_pass = config.DBDefaults.DBPass(*datadb_type, *datadb_pass)
-
-	*stor_db_type = strings.TrimPrefix(*stor_db_type, "*")
-	*stor_db_host = config.DBDefaults.DBHost(*stor_db_type, *stor_db_host)
-	*stor_db_port = config.DBDefaults.DBPort(*stor_db_type, *stor_db_port)
-	*stor_db_name = config.DBDefaults.DBName(*stor_db_type, *stor_db_name)
-	*stor_db_user = config.DBDefaults.DBUser(*stor_db_type, *stor_db_user)
-	*stor_db_pass = config.DBDefaults.DBPass(*stor_db_type, *stor_db_pass)
-
-	if !*toStorDb {
-		dm, errDataDB = engine.ConfigureDataStorage(*datadb_type, *datadb_host, *datadb_port, *datadb_name,
-			*datadb_user, *datadb_pass, *dbdata_encoding, config.CgrConfig().CacheCfg(), *loadHistorySize)
-	}
-	if *fromStorDb || *toStorDb {
-		storDb, errStorDb = engine.ConfigureLoadStorage(*stor_db_type, *stor_db_host, *stor_db_port, *stor_db_name, *stor_db_user, *stor_db_pass, *dbdata_encoding,
-			config.CgrConfig().StorDBMaxOpenConns, config.CgrConfig().StorDBMaxIdleConns, config.CgrConfig().StorDBConnMaxLifetime, config.CgrConfig().StorDBCDRSIndexes)
-	}
-	// Stop on db errors
-	for _, err = range []error{errDataDB, errDataDB, errStorDb} {
-		if err != nil {
-			log.Fatalf("Could not open database connection: %v", err)
+	ldrCfg := config.CgrConfig()
+	if *cfgDir != "" {
+		if ldrCfg, err = config.NewCGRConfigFromFolder(*cfgDir); err != nil {
+			log.Fatalf("Error loading config file %s", err.Error())
 		}
 	}
-	// Defer databases opened to be closed when we are done
-	for _, db := range []engine.Storage{dm.DataDB(), storDb} {
-		if db != nil {
-			defer db.Close()
+
+	// Data for DataDB
+	if *dataDBType != dfltCfg.DataDbCfg().DataDbType {
+		ldrCfg.DataDbCfg().DataDbType = strings.TrimPrefix(*dataDBType, "*")
+	}
+
+	if *dataDBHost != dfltCfg.DataDbCfg().DataDbHost {
+		ldrCfg.DataDbCfg().DataDbHost = *dataDBHost
+	}
+
+	if *dataDBPort != dfltCfg.DataDbCfg().DataDbPort {
+		ldrCfg.DataDbCfg().DataDbPort = *dataDBPort
+	}
+
+	if *dataDBName != dfltCfg.DataDbCfg().DataDbName {
+		ldrCfg.DataDbCfg().DataDbName = *dataDBName
+	}
+
+	if *dataDBUser != dfltCfg.DataDbCfg().DataDbUser {
+		ldrCfg.DataDbCfg().DataDbUser = *dataDBUser
+	}
+
+	if *dataDBPasswd != dfltCfg.DataDbCfg().DataDbPass {
+		ldrCfg.DataDbCfg().DataDbPass = *dataDBPasswd
+	}
+
+	if *dbRedisSentinel != dfltCfg.DataDbCfg().DataDbSentinelName {
+		ldrCfg.DataDbCfg().DataDbSentinelName = *dbRedisSentinel
+	}
+
+	if *dbDataEncoding != dfltCfg.GeneralCfg().DBDataEncoding {
+		ldrCfg.GeneralCfg().DBDataEncoding = *dbDataEncoding
+	}
+
+	// Data for StorDB
+	if *storDBType != dfltCfg.StorDbCfg().StorDBType {
+		ldrCfg.StorDbCfg().StorDBType = strings.TrimPrefix(*storDBType, "*")
+	}
+
+	if *storDBHost != dfltCfg.StorDbCfg().StorDBHost {
+		ldrCfg.StorDbCfg().StorDBHost = *storDBHost
+	}
+
+	if *storDBPort != dfltCfg.StorDbCfg().StorDBPort {
+		ldrCfg.StorDbCfg().StorDBPort = *storDBPort
+	}
+
+	if *storDBName != dfltCfg.StorDbCfg().StorDBName {
+		ldrCfg.StorDbCfg().StorDBName = *storDBName
+	}
+
+	if *storDBUser != dfltCfg.StorDbCfg().StorDBUser {
+		ldrCfg.StorDbCfg().StorDBUser = *storDBUser
+	}
+
+	if *storDBPasswd != dfltCfg.StorDbCfg().StorDBPass {
+		ldrCfg.StorDbCfg().StorDBPass = *storDBPasswd
+	}
+
+	if *tpid != dfltCfg.LoaderCgrCfg().DataPath {
+		ldrCfg.LoaderCgrCfg().TpID = *tpid
+	}
+
+	if *dataPath != dfltCfg.LoaderCgrCfg().DataPath {
+		ldrCfg.LoaderCgrCfg().DataPath = *dataPath
+	}
+
+	if rune((*fieldSep)[0]) != dfltCfg.LoaderCgrCfg().FieldSeparator {
+		ldrCfg.LoaderCgrCfg().FieldSeparator = rune((*fieldSep)[0])
+	}
+
+	if *cacheSAddress != dfltCfg.LoaderCgrCfg().CachesConns[0].Address {
+		ldrCfg.LoaderCgrCfg().CachesConns = make([]*config.HaPoolConfig, 0)
+		if *cacheSAddress != "" {
+			ldrCfg.LoaderCgrCfg().CachesConns = append(ldrCfg.LoaderCgrCfg().CachesConns,
+				&config.HaPoolConfig{
+					Address:   *cacheSAddress,
+					Transport: *rpcEncoding,
+				})
 		}
 	}
-	// Init necessary db connections, only if not already
-	if !*dryRun { // make sure we do not need db connections on dry run, also not importing into any stordb
-		if *toStorDb { // Import files from a directory into storDb
-			if *tpid == "" {
-				log.Fatal("TPid required, please define it via *-tpid* command argument.")
+
+	if *schedulerAddress != dfltCfg.LoaderCgrCfg().SchedulerConns[0].Address {
+		ldrCfg.LoaderCgrCfg().SchedulerConns = make([]*config.HaPoolConfig, 0)
+		if *schedulerAddress != "" {
+			ldrCfg.LoaderCgrCfg().SchedulerConns = append(ldrCfg.LoaderCgrCfg().SchedulerConns,
+				&config.HaPoolConfig{Address: *schedulerAddress})
+		}
+	}
+
+	if *rpcEncoding != dfltCfg.LoaderCgrCfg().CachesConns[0].Transport &&
+		len(ldrCfg.LoaderCgrCfg().CachesConns) != 0 {
+		ldrCfg.LoaderCgrCfg().CachesConns[0].Transport = *rpcEncoding
+	}
+
+	if *importID == "" {
+		*importID = utils.UUIDSha1Prefix()
+	}
+
+	if *timezone != dfltCfg.GeneralCfg().DefaultTimezone {
+		ldrCfg.GeneralCfg().DefaultTimezone = *timezone
+	}
+
+	if *disableReverse != dfltCfg.LoaderCgrCfg().DisableReverse {
+		ldrCfg.LoaderCgrCfg().DisableReverse = *disableReverse
+	}
+
+	if !*toStorDB {
+		if dm, err = engine.ConfigureDataStorage(ldrCfg.DataDbCfg().DataDbType,
+			ldrCfg.DataDbCfg().DataDbHost, ldrCfg.DataDbCfg().DataDbPort,
+			ldrCfg.DataDbCfg().DataDbName, ldrCfg.DataDbCfg().DataDbUser,
+			ldrCfg.DataDbCfg().DataDbPass, ldrCfg.GeneralCfg().DBDataEncoding,
+			config.CgrConfig().CacheCfg(), ldrCfg.DataDbCfg().DataDbSentinelName); err != nil {
+			log.Fatalf("Coud not open dataDB connection: %s", err.Error())
+		}
+		defer dm.DataDB().Close()
+	}
+
+	if *fromStorDB || *toStorDB {
+		if storDb, err = engine.ConfigureLoadStorage(ldrCfg.StorDbCfg().StorDBType,
+			ldrCfg.StorDbCfg().StorDBHost, ldrCfg.StorDbCfg().StorDBPort,
+			ldrCfg.StorDbCfg().StorDBName, ldrCfg.StorDbCfg().StorDBUser,
+			ldrCfg.StorDbCfg().StorDBPass, ldrCfg.GeneralCfg().DBDataEncoding,
+			config.CgrConfig().StorDbCfg().StorDBMaxOpenConns,
+			config.CgrConfig().StorDbCfg().StorDBMaxIdleConns,
+			config.CgrConfig().StorDbCfg().StorDBConnMaxLifetime,
+			config.CgrConfig().StorDbCfg().StorDBCDRSIndexes); err != nil {
+			log.Fatalf("Coud not open storDB connection: %s", err.Error())
+		}
+		defer storDb.Close()
+	}
+
+	if !*dryRun {
+		//tpid_remove
+		if *toStorDB { // Import files from a directory into storDb
+			if ldrCfg.LoaderCgrCfg().TpID == "" {
+				log.Fatal("TPid required.")
+			}
+			if *flushStorDB {
+				if err = storDb.RemTpData("", ldrCfg.LoaderCgrCfg().TpID, map[string]string{}); err != nil {
+					log.Fatal(err)
+				}
 			}
 			csvImporter := engine.TPCSVImporter{
-				TPid:     *tpid,
+				TPid:     ldrCfg.LoaderCgrCfg().TpID,
 				StorDb:   storDb,
 				DirPath:  *dataPath,
-				Sep:      ',',
+				Sep:      ldrCfg.LoaderCgrCfg().FieldSeparator,
 				Verbose:  *verbose,
-				ImportId: *runId,
+				ImportId: *importID,
 			}
 			if errImport := csvImporter.Run(); errImport != nil {
 				log.Fatal(errImport)
@@ -143,13 +247,7 @@ func main() {
 		}
 		loader = storDb
 	} else { // Default load from csv files to dataDb
-		/*for fn, v := range engine.FileValidators {
-			err := engine.ValidateCSVData(path.Join(*dataPath, fn), v.Rule)
-			if err != nil {
-				log.Fatal(err, "\n\t", v.Message)
-			}
-		}*/
-		loader = engine.NewFileCSVStorage(',',
+		loader = engine.NewFileCSVStorage(ldrCfg.LoaderCgrCfg().FieldSeparator,
 			path.Join(*dataPath, utils.DESTINATIONS_CSV),
 			path.Join(*dataPath, utils.TIMINGS_CSV),
 			path.Join(*dataPath, utils.RATES_CSV),
@@ -157,13 +255,11 @@ func main() {
 			path.Join(*dataPath, utils.RATING_PLANS_CSV),
 			path.Join(*dataPath, utils.RATING_PROFILES_CSV),
 			path.Join(*dataPath, utils.SHARED_GROUPS_CSV),
-			path.Join(*dataPath, utils.LCRS_CSV),
 			path.Join(*dataPath, utils.ACTIONS_CSV),
 			path.Join(*dataPath, utils.ACTION_PLANS_CSV),
 			path.Join(*dataPath, utils.ACTION_TRIGGERS_CSV),
 			path.Join(*dataPath, utils.ACCOUNT_ACTIONS_CSV),
 			path.Join(*dataPath, utils.DERIVED_CHARGERS_CSV),
-			path.Join(*dataPath, utils.CDR_STATS_CSV),
 			path.Join(*dataPath, utils.USERS_CSV),
 			path.Join(*dataPath, utils.ALIASES_CSV),
 			path.Join(*dataPath, utils.ResourcesCsv),
@@ -172,64 +268,46 @@ func main() {
 			path.Join(*dataPath, utils.FiltersCsv),
 			path.Join(*dataPath, utils.SuppliersCsv),
 			path.Join(*dataPath, utils.AttributesCsv),
+			path.Join(*dataPath, utils.ChargersCsv),
 		)
 	}
 
-	tpReader := engine.NewTpReader(dm.DataDB(), loader, *tpid, *timezone)
-	err = tpReader.LoadAll()
-	if err != nil {
+	tpReader := engine.NewTpReader(dm.DataDB(), loader,
+		ldrCfg.LoaderCgrCfg().TpID, ldrCfg.GeneralCfg().DefaultTimezone)
+
+	if err = tpReader.LoadAll(); err != nil {
 		log.Fatal(err)
-	}
-	if *stats {
-		tpReader.ShowStatistics()
-	}
-	if *validate {
-		if !tpReader.IsValid() {
-			return
-		} else {
-			log.Println("Validation ended successfully")
-		}
 	}
 	if *dryRun { // We were just asked to parse the data, not saving it
 		return
 	}
-	if *cleanup {
-		if err := tpReader.CleanDataDb(*tpid); err != nil {
-			log.Fatal("Error cleaning up unused rating plans/profiles")
-			return
-		} else {
-			*flush = true // Cleanup requires flushing cache
-			log.Println("Cleanup ended succesfully")
-		}
-	}
-	if *ralsAddress != "" { // Init connection to rater so we can reload it's data
-		if rater, err = rpcclient.NewRpcClient("tcp", *ralsAddress, 3, 3,
-			time.Duration(1*time.Second), time.Duration(5*time.Minute), *rpcEncoding, nil, false); err != nil {
-			log.Fatalf("Could not connect to RALs: %s", err.Error())
+	if len(ldrCfg.LoaderCgrCfg().CachesConns) != 0 { // Init connection to CacheS so we can reload it's data
+		if cacheS, err = rpcclient.NewRpcClient("tcp",
+			ldrCfg.LoaderCgrCfg().CachesConns[0].Address,
+			ldrCfg.LoaderCgrCfg().CachesConns[0].Tls, ldrCfg.TlsCfg().ClientKey,
+			ldrCfg.TlsCfg().ClientCerificate, ldrCfg.TlsCfg().CaCertificate, 3, 3,
+			time.Duration(1*time.Second), time.Duration(5*time.Minute),
+			strings.TrimPrefix(ldrCfg.LoaderCgrCfg().CachesConns[0].Transport, utils.Meta),
+			nil, false); err != nil {
+			log.Fatalf("Could not connect to CacheS: %s", err.Error())
 			return
 		}
 	} else {
-		log.Print("WARNING: Rates automatic cache reloading is disabled!")
+		log.Print("WARNING: automatic cache reloading is disabled!")
 	}
-	if *cdrstatsAddress != "" { // Init connection to rater so we can reload it's data
-		if *cdrstatsAddress == *ralsAddress {
-			cdrstats = rater
-		} else {
-			if cdrstats, err = rpcclient.NewRpcClient("tcp", *cdrstatsAddress, 3, 3,
-				time.Duration(1*time.Second), time.Duration(5*time.Minute), *rpcEncoding, nil, false); err != nil {
-				log.Fatalf("Could not connect to CDRStatS API: %s", err.Error())
-				return
-			}
-		}
-	} else {
-		log.Print("WARNING: CDRStats automatic data reload is disabled!")
-	}
+
+	// FixMe: remove users reloading as soon as not longer supported
 	if *usersAddress != "" { // Init connection to rater so we can reload it's data
-		if *usersAddress == *ralsAddress {
-			users = rater
+		if len(ldrCfg.LoaderCgrCfg().CachesConns) != 0 &&
+			*usersAddress == ldrCfg.LoaderCgrCfg().CachesConns[0].Address {
+			userS = cacheS
 		} else {
-			if users, err = rpcclient.NewRpcClient("tcp", *usersAddress, 3, 3,
-				time.Duration(1*time.Second), time.Duration(5*time.Minute), *rpcEncoding, nil, false); err != nil {
+			if userS, err = rpcclient.NewRpcClient("tcp", *usersAddress,
+				ldrCfg.LoaderCgrCfg().CachesConns[0].Tls,
+				ldrCfg.TlsCfg().ClientKey, ldrCfg.TlsCfg().ClientCerificate,
+				ldrCfg.TlsCfg().CaCertificate, 3, 3,
+				time.Duration(1*time.Second), time.Duration(5*time.Minute),
+				strings.TrimPrefix(*rpcEncoding, utils.Meta), nil, false); err != nil {
 				log.Fatalf("Could not connect to UserS API: %s", err.Error())
 				return
 			}
@@ -237,13 +315,14 @@ func main() {
 	} else {
 		log.Print("WARNING: Users automatic data reload is disabled!")
 	}
+
 	if !*remove {
 		// write maps to database
-		if err := tpReader.WriteToDatabase(*flush, *verbose, *disable_reverse); err != nil {
+		if err := tpReader.WriteToDatabase(*flush, *verbose, *disableReverse); err != nil {
 			log.Fatal("Could not write to database: ", err)
 		}
-		var dstIds, revDstIDs, rplIds, rpfIds, actIds, aapIDs, shgIds, alsIds, lcrIds, dcsIds, rspIDs, resIDs, aatIDs, ralsIDs []string
-		if rater != nil {
+		var dstIds, revDstIDs, rplIds, rpfIds, actIds, aapIDs, shgIds, alsIds, dcsIds, rspIDs, resIDs, aatIDs, ralsIDs, stqIDs, stqpIDs, trsIDs, trspfIDs, flrIDs, spfIDs, apfIDs, chargerIDs []string
+		if cacheS != nil {
 			dstIds, _ = tpReader.GetLoadedIds(utils.DESTINATION_PREFIX)
 			revDstIDs, _ = tpReader.GetLoadedIds(utils.REVERSE_DESTINATION_PREFIX)
 			rplIds, _ = tpReader.GetLoadedIds(utils.RATING_PLAN_PREFIX)
@@ -252,95 +331,114 @@ func main() {
 			aapIDs, _ = tpReader.GetLoadedIds(utils.AccountActionPlansPrefix)
 			shgIds, _ = tpReader.GetLoadedIds(utils.SHARED_GROUP_PREFIX)
 			alsIds, _ = tpReader.GetLoadedIds(utils.ALIASES_PREFIX)
-			lcrIds, _ = tpReader.GetLoadedIds(utils.LCR_PREFIX)
 			dcsIds, _ = tpReader.GetLoadedIds(utils.DERIVEDCHARGERS_PREFIX)
 			rspIDs, _ = tpReader.GetLoadedIds(utils.ResourceProfilesPrefix)
 			resIDs, _ = tpReader.GetLoadedIds(utils.ResourcesPrefix)
 			aatIDs, _ = tpReader.GetLoadedIds(utils.ACTION_TRIGGER_PREFIX)
 			ralsIDs, _ = tpReader.GetLoadedIds(utils.REVERSE_ALIASES_PREFIX)
+			stqIDs, _ = tpReader.GetLoadedIds(utils.StatQueuePrefix)
+			stqpIDs, _ = tpReader.GetLoadedIds(utils.StatQueueProfilePrefix)
+			trsIDs, _ = tpReader.GetLoadedIds(utils.ThresholdPrefix)
+			trspfIDs, _ = tpReader.GetLoadedIds(utils.ThresholdProfilePrefix)
+			flrIDs, _ = tpReader.GetLoadedIds(utils.FilterPrefix)
+			spfIDs, _ = tpReader.GetLoadedIds(utils.SupplierProfilePrefix)
+			apfIDs, _ = tpReader.GetLoadedIds(utils.AttributeProfilePrefix)
+			chargerIDs, _ = tpReader.GetLoadedIds(utils.ChargerProfilePrefix)
 		}
 		aps, _ := tpReader.GetLoadedIds(utils.ACTION_PLAN_PREFIX)
-		var statsQueueIds []string
-		if cdrstats != nil {
-			statsQueueIds, _ = tpReader.GetLoadedIds(utils.CDR_STATS_PREFIX)
-		}
+		// for users reloading
 		var userIds []string
-		if users != nil {
+		if userS != nil {
 			userIds, _ = tpReader.GetLoadedIds(utils.USERS_PREFIX)
 		}
 		// release the reader with it's structures
 		tpReader.Init()
 
 		// Reload scheduler and cache
-		if rater != nil {
-			reply := ""
-
+		if cacheS != nil {
+			var reply string
 			// Reload cache first since actions could be calling info from within
 			if *flush {
 				log.Print("Flushing cache")
 			} else {
 				log.Print("Reloading cache")
 			}
-			if err = rater.Call("ApierV1.ReloadCache", utils.AttrReloadCache{ArgsCache: utils.ArgsCache{
-				DestinationIDs:        &dstIds,
-				ReverseDestinationIDs: &revDstIDs,
-				RatingPlanIDs:         &rplIds,
-				RatingProfileIDs:      &rpfIds,
-				ActionIDs:             &actIds,
-				ActionPlanIDs:         &aps,
-				AccountActionPlanIDs:  &aapIDs,
-				ActionTriggerIDs:      &aatIDs,
-				SharedGroupIDs:        &shgIds,
-				LCRids:                &lcrIds,
-				DerivedChargerIDs:     &dcsIds,
-				AliasIDs:              &alsIds,
-				ReverseAliasIDs:       &ralsIDs,
-				ResourceProfileIDs:    &rspIDs,
-				ResourceIDs:           &resIDs},
-				FlushAll: *flush,
-			}, &reply); err != nil {
+			if err = cacheS.Call(utils.ApierV1ReloadCache,
+				utils.AttrReloadCache{ArgsCache: utils.ArgsCache{
+					DestinationIDs:        &dstIds,
+					ReverseDestinationIDs: &revDstIDs,
+					RatingPlanIDs:         &rplIds,
+					RatingProfileIDs:      &rpfIds,
+					ActionIDs:             &actIds,
+					ActionPlanIDs:         &aps,
+					AccountActionPlanIDs:  &aapIDs,
+					SharedGroupIDs:        &shgIds,
+					AliasIDs:              &alsIds,
+					DerivedChargerIDs:     &dcsIds,
+					ResourceProfileIDs:    &rspIDs,
+					ResourceIDs:           &resIDs,
+					ActionTriggerIDs:      &aatIDs,
+					ReverseAliasIDs:       &ralsIDs,
+					StatsQueueIDs:         &stqIDs,
+					StatsQueueProfileIDs:  &stqpIDs,
+					ThresholdIDs:          &trsIDs,
+					ThresholdProfileIDs:   &trspfIDs,
+					FilterIDs:             &flrIDs,
+					SupplierProfileIDs:    &spfIDs,
+					AttributeProfileIDs:   &apfIDs,
+					ChargerProfileIDs:     &chargerIDs},
+					FlushAll: *flush,
+				}, &reply); err != nil {
 				log.Printf("WARNING: Got error on cache reload: %s\n", err.Error())
+			}
+			if *verbose {
+				log.Print("Clearing cached indexes")
+			}
+			var cacheIDs []string
+			if len(apfIDs) != 0 {
+				cacheIDs = append(cacheIDs, utils.CacheAttributeFilterIndexes)
+			}
+			if len(spfIDs) != 0 {
+				cacheIDs = append(cacheIDs, utils.CacheSupplierFilterIndexes)
+			}
+			if len(trspfIDs) != 0 {
+				cacheIDs = append(cacheIDs, utils.CacheThresholdFilterIndexes)
+			}
+			if len(stqpIDs) != 0 {
+				cacheIDs = append(cacheIDs, utils.CacheStatFilterIndexes)
+			}
+			if len(rspIDs) != 0 {
+				cacheIDs = append(cacheIDs, utils.CacheResourceFilterIndexes)
+			}
+			if len(chargerIDs) != 0 {
+				cacheIDs = append(cacheIDs, utils.CacheChargerFilterIndexes)
+			}
+			if err = cacheS.Call(utils.CacheSv1Clear, cacheIDs, &reply); err != nil {
+				log.Printf("WARNING: Got error on cache clear: %s\n", err.Error())
 			}
 
 			if len(aps) != 0 {
 				if *verbose {
 					log.Print("Reloading scheduler")
 				}
-				if err = rater.Call("ApierV1.ReloadScheduler", "", &reply); err != nil {
+				if err = cacheS.Call(utils.ApierV1ReloadScheduler, "", &reply); err != nil {
 					log.Printf("WARNING: Got error on scheduler reload: %s\n", err.Error())
 				}
 			}
 
-		}
-		if cdrstats != nil {
-			if *flush {
-				statsQueueIds = []string{} // Force reload all
-			}
-			if len(statsQueueIds) != 0 {
-				if *verbose {
-					log.Print("Reloading CDRStats data")
-				}
-				var reply string
-				if err := cdrstats.Call("CDRStatsV1.ReloadQueues", utils.AttrCDRStatsReloadQueues{StatsQueueIds: statsQueueIds}, &reply); err != nil {
-					log.Printf("WARNING: Failed reloading stat queues, error: %s\n", err.Error())
-				}
-			}
-		}
-
-		if users != nil {
-			if len(userIds) > 0 {
+			if userS != nil && len(userIds) > 0 {
 				if *verbose {
 					log.Print("Reloading Users data")
 				}
 				var reply string
-				if err := cdrstats.Call("UsersV1.ReloadUsers", "", &reply); err != nil {
+				if err := userS.Call(utils.UsersV1ReloadUsers, "", &reply); err != nil {
 					log.Printf("WARNING: Failed reloading users data, error: %s\n", err.Error())
 				}
-
 			}
+
 		}
 	} else {
-		if err := tpReader.RemoveFromDatabase(*verbose, *disable_reverse); err != nil {
+		if err := tpReader.RemoveFromDatabase(*verbose, *disableReverse); err != nil {
 			log.Fatal("Could not delete from database: ", err)
 		}
 	}

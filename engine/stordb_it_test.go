@@ -52,9 +52,7 @@ var sTestsStorDBit = []func(t *testing.T){
 	testStorDBitCRUDTpActionPlans,
 	testStorDBitCRUDTpActionTriggers,
 	testStorDBitCRUDTpAccountActions,
-	testStorDBitCRUDTpLCRs,
 	testStorDBitCRUDTpDerivedChargers,
-	testStorDBitCRUDTpCdrStats,
 	testStorDBitCRUDTpUsers,
 	testStorDBitCRUDTpResources,
 	testStorDBitCRUDTpStats,
@@ -66,8 +64,11 @@ func TestStorDBitMySQL(t *testing.T) {
 	if cfg, err = config.NewCGRConfigFromFolder(path.Join(*dataDir, "conf", "samples", "storage", "mysql")); err != nil {
 		t.Fatal(err)
 	}
-	if storDB, err = NewMySQLStorage(cfg.StorDBHost, cfg.StorDBPort, cfg.StorDBName,
-		cfg.StorDBUser, cfg.StorDBPass, cfg.StorDBMaxOpenConns, cfg.StorDBMaxIdleConns, cfg.StorDBConnMaxLifetime); err != nil {
+	if storDB, err = NewMySQLStorage(cfg.StorDbCfg().StorDBHost,
+		cfg.StorDbCfg().StorDBPort, cfg.StorDbCfg().StorDBName,
+		cfg.StorDbCfg().StorDBUser, cfg.StorDbCfg().StorDBPass,
+		cfg.StorDbCfg().StorDBMaxOpenConns, cfg.StorDbCfg().StorDBMaxIdleConns,
+		cfg.StorDbCfg().StorDBConnMaxLifetime); err != nil {
 		t.Fatal(err)
 	}
 	storDB2ndDBname = "mysql"
@@ -83,8 +84,11 @@ func TestStorDBitPostgresSQL(t *testing.T) {
 	if cfg, err = config.NewCGRConfigFromFolder(path.Join(*dataDir, "conf", "samples", "storage", "postgres")); err != nil {
 		t.Fatal(err)
 	}
-	if storDB, err = NewPostgresStorage(cfg.StorDBHost, cfg.StorDBPort, cfg.StorDBName,
-		cfg.StorDBUser, cfg.StorDBPass, cfg.StorDBMaxOpenConns, cfg.StorDBMaxIdleConns, cfg.StorDBConnMaxLifetime); err != nil {
+	if storDB, err = NewPostgresStorage(cfg.StorDbCfg().StorDBHost,
+		cfg.StorDbCfg().StorDBPort, cfg.StorDbCfg().StorDBName,
+		cfg.StorDbCfg().StorDBUser, cfg.StorDbCfg().StorDBPass,
+		cfg.StorDbCfg().StorDBMaxOpenConns, cfg.StorDbCfg().StorDBMaxIdleConns,
+		cfg.StorDbCfg().StorDBConnMaxLifetime); err != nil {
 		t.Fatal(err)
 	}
 	storDB2ndDBname = "postgres"
@@ -100,8 +104,10 @@ func TestStorDBitMongo(t *testing.T) {
 	if cfg, err = config.NewCGRConfigFromFolder(path.Join(*dataDir, "conf", "samples", "storage", "mongo")); err != nil {
 		t.Fatal(err)
 	}
-	if storDB, err = NewMongoStorage(cfg.StorDBHost, cfg.StorDBPort, cfg.StorDBName,
-		cfg.StorDBUser, cfg.StorDBPass, utils.StorDB, cfg.StorDBCDRSIndexes, nil, cfg.LoadHistorySize); err != nil {
+	if storDB, err = NewMongoStorage(cfg.StorDbCfg().StorDBHost,
+		cfg.StorDbCfg().StorDBPort, cfg.StorDbCfg().StorDBName,
+		cfg.StorDbCfg().StorDBUser, cfg.StorDbCfg().StorDBPass,
+		utils.StorDB, cfg.StorDbCfg().StorDBCDRSIndexes, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	storDB2ndDBname = "todo"
@@ -143,7 +149,7 @@ func testStorDBitCRUDTpTimings(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.ApierTPTiming{
-		&utils.ApierTPTiming{
+		{
 			TPid:      "testTPid",
 			ID:        "testTag1",
 			Years:     "*any",
@@ -152,7 +158,7 @@ func testStorDBitCRUDTpTimings(t *testing.T) {
 			WeekDays:  "1;2;3;4;5",
 			Time:      "01:00:00",
 		},
-		&utils.ApierTPTiming{
+		{
 			TPid:      "testTPid",
 			ID:        "testTag2",
 			Years:     "*any",
@@ -204,12 +210,12 @@ func testStorDBitCRUDTpDestinations(t *testing.T) {
 	}
 	// WRITE
 	snd := []*utils.TPDestination{
-		&utils.TPDestination{
+		{
 			TPid:     "testTPid",
 			ID:       "testTag1",
 			Prefixes: []string{`0256`, `0257`, `0723`, `+49`},
 		},
-		&utils.TPDestination{
+		{
 			TPid:     "testTPid",
 			ID:       "testTag2",
 			Prefixes: []string{`0256`, `0257`, `0723`, `+49`},
@@ -227,7 +233,7 @@ func testStorDBitCRUDTpDestinations(t *testing.T) {
 			prfs[prf] = true
 		}
 		pfrOk := true
-		for i, _ := range rcv[0].Prefixes {
+		for i := range rcv[0].Prefixes {
 			found1, _ := prfs[rcv[0].Prefixes[i]]
 			found2, _ := prfs[rcv[1].Prefixes[i]]
 			if !found1 && !found2 {
@@ -257,7 +263,7 @@ func testStorDBitCRUDTpDestinations(t *testing.T) {
 			prfs[prf] = true
 		}
 		pfrOk := true
-		for i, _ := range rcv[0].Prefixes {
+		for i := range rcv[0].Prefixes {
 			found1, _ := prfs[rcv[0].Prefixes[i]]
 			found2, _ := prfs[rcv[1].Prefixes[i]]
 			if !found1 && !found2 {
@@ -289,18 +295,18 @@ func testStorDBitCRUDTpRates(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPRate{
-		&utils.TPRate{
+		{
 			TPid: "testTPid",
 			ID:   "1",
 			RateSlots: []*utils.RateSlot{
-				&utils.RateSlot{
+				{
 					ConnectFee:         0.0,
 					Rate:               0.0,
 					RateUnit:           "60s",
 					RateIncrement:      "60s",
 					GroupIntervalStart: "0s",
 				},
-				&utils.RateSlot{
+				{
 					ConnectFee:         0.0,
 					Rate:               0.0,
 					RateUnit:           "60s",
@@ -309,11 +315,11 @@ func testStorDBitCRUDTpRates(t *testing.T) {
 				},
 			},
 		},
-		&utils.TPRate{
+		{
 			TPid: "testTPid",
 			ID:   "2",
 			RateSlots: []*utils.RateSlot{
-				&utils.RateSlot{
+				{
 					ConnectFee:         0.0,
 					Rate:               0.0,
 					RateUnit:           "60s",
@@ -370,11 +376,11 @@ func testStorDBitCRUDTpDestinationRates(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPDestinationRate{
-		&utils.TPDestinationRate{
+		{
 			TPid: "testTPid",
 			ID:   "1",
 			DestinationRates: []*utils.DestinationRate{
-				&utils.DestinationRate{
+				{
 					DestinationId:    "GERMANY",
 					RateId:           "RT_1CENT",
 					RoundingMethod:   "*up",
@@ -384,11 +390,11 @@ func testStorDBitCRUDTpDestinationRates(t *testing.T) {
 				},
 			},
 		},
-		&utils.TPDestinationRate{
+		{
 			TPid: "testTPid",
 			ID:   "2",
 			DestinationRates: []*utils.DestinationRate{
-				&utils.DestinationRate{
+				{
 					DestinationId:    "GERMANY",
 					RateId:           "RT_1CENT",
 					RoundingMethod:   "*up",
@@ -442,22 +448,22 @@ func testStorDBitCRUDTpRatingPlans(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPRatingPlan{
-		&utils.TPRatingPlan{
+		{
 			TPid: "testTPid",
 			ID:   "1",
 			RatingPlanBindings: []*utils.TPRatingPlanBinding{
-				&utils.TPRatingPlanBinding{
+				{
 					DestinationRatesId: "1",
 					TimingId:           "ALWAYS",
 					Weight:             0.0,
 				},
 			},
 		},
-		&utils.TPRatingPlan{
+		{
 			TPid: "testTPid",
 			ID:   "2",
 			RatingPlanBindings: []*utils.TPRatingPlanBinding{
-				&utils.TPRatingPlanBinding{
+				{
 					DestinationRatesId: "2",
 					TimingId:           "ALWAYS",
 					Weight:             2,
@@ -510,7 +516,7 @@ func testStorDBitCRUDTpRatingProfiles(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPRatingProfile{
-		&utils.TPRatingProfile{
+		{
 			TPid:      "testTPid",
 			LoadId:    "TEST_LOADID",
 			Direction: "*out",
@@ -518,7 +524,7 @@ func testStorDBitCRUDTpRatingProfiles(t *testing.T) {
 			Category:  "call",
 			Subject:   "test",
 			RatingPlanActivations: []*utils.TPRatingActivation{
-				&utils.TPRatingActivation{
+				{
 					ActivationTime:   "2014-07-29T15:00:00Z",
 					RatingPlanId:     "test",
 					FallbackSubjects: "",
@@ -526,7 +532,7 @@ func testStorDBitCRUDTpRatingProfiles(t *testing.T) {
 				},
 			},
 		},
-		&utils.TPRatingProfile{
+		{
 			TPid:      "testTPid",
 			LoadId:    "TEST_LOADID2",
 			Direction: "*out",
@@ -534,7 +540,7 @@ func testStorDBitCRUDTpRatingProfiles(t *testing.T) {
 			Category:  "call",
 			Subject:   "test",
 			RatingPlanActivations: []*utils.TPRatingActivation{
-				&utils.TPRatingActivation{
+				{
 					ActivationTime:   "2014-07-29T15:00:00Z",
 					RatingPlanId:     "test",
 					FallbackSubjects: "",
@@ -585,22 +591,22 @@ func testStorDBitCRUDTpSharedGroups(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPSharedGroups{
-		&utils.TPSharedGroups{
+		{
 			TPid: "testTPid",
 			ID:   "1",
 			SharedGroups: []*utils.TPSharedGroup{
-				&utils.TPSharedGroup{
+				{
 					Account:       "test",
 					Strategy:      "*lowest_cost",
 					RatingSubject: "test",
 				},
 			},
 		},
-		&utils.TPSharedGroups{
+		{
 			TPid: "testTPid",
 			ID:   "2",
 			SharedGroups: []*utils.TPSharedGroup{
-				&utils.TPSharedGroup{
+				{
 					Account:       "test",
 					Strategy:      "*lowest_cost",
 					RatingSubject: "test",
@@ -650,11 +656,11 @@ func testStorDBitCRUDTpActions(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPActions{
-		&utils.TPActions{
+		{
 			TPid: "testTPid",
 			ID:   "1",
 			Actions: []*utils.TPAction{
-				&utils.TPAction{
+				{
 					Identifier:      "",
 					BalanceId:       "",
 					BalanceUuid:     "",
@@ -676,11 +682,11 @@ func testStorDBitCRUDTpActions(t *testing.T) {
 				},
 			},
 		},
-		&utils.TPActions{
+		{
 			TPid: "testTPid",
 			ID:   "2",
 			Actions: []*utils.TPAction{
-				&utils.TPAction{
+				{
 					Identifier:      "",
 					BalanceId:       "",
 					BalanceUuid:     "",
@@ -745,22 +751,22 @@ func testStorDBitCRUDTpActionPlans(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPActionPlan{
-		&utils.TPActionPlan{
+		{
 			TPid: "testTPid",
 			ID:   "1",
 			ActionPlan: []*utils.TPActionTiming{
-				&utils.TPActionTiming{
+				{
 					ActionsId: "1",
 					TimingId:  "1",
 					Weight:    1,
 				},
 			},
 		},
-		&utils.TPActionPlan{
+		{
 			TPid: "testTPid",
 			ID:   "2",
 			ActionPlan: []*utils.TPActionTiming{
-				&utils.TPActionTiming{
+				{
 					ActionsId: "1",
 					TimingId:  "1",
 					Weight:    1,
@@ -810,11 +816,11 @@ func testStorDBitCRUDTpActionTriggers(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPActionTriggers{
-		&utils.TPActionTriggers{
+		{
 			TPid: "testTPid",
 			ID:   "1",
 			ActionTriggers: []*utils.TPActionTrigger{
-				&utils.TPActionTrigger{
+				{
 					Id:                    "1",
 					UniqueID:              "",
 					ThresholdType:         "1",
@@ -841,11 +847,11 @@ func testStorDBitCRUDTpActionTriggers(t *testing.T) {
 				},
 			},
 		},
-		&utils.TPActionTriggers{
+		{
 			TPid: "testTPid",
 			ID:   "2",
 			ActionTriggers: []*utils.TPActionTrigger{
-				&utils.TPActionTrigger{
+				{
 					Id:                    "2",
 					UniqueID:              "",
 					ThresholdType:         "1",
@@ -918,7 +924,7 @@ func testStorDBitCRUDTpAccountActions(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPAccountActions{
-		&utils.TPAccountActions{
+		{
 			TPid:             "testTPid",
 			LoadId:           "TEST_LOADID",
 			Tenant:           "cgrates.org",
@@ -928,7 +934,7 @@ func testStorDBitCRUDTpAccountActions(t *testing.T) {
 			AllowNegative:    true,
 			Disabled:         true,
 		},
-		&utils.TPAccountActions{
+		{
 			TPid:             "testTPid",
 			LoadId:           "TEST_LOADID",
 			Tenant:           "cgrates.org",
@@ -974,103 +980,6 @@ func testStorDBitCRUDTpAccountActions(t *testing.T) {
 	}
 }
 
-func testStorDBitCRUDTpLCRs(t *testing.T) {
-	// READ
-	var filter = utils.TPLcrRules{
-		TPid:      "testTPid",
-		Direction: "",
-		Tenant:    "",
-		Category:  "",
-		Account:   "",
-		Subject:   "",
-		Rules: []*utils.TPLcrRule{
-			&utils.TPLcrRule{
-				DestinationId:  "",
-				RpCategory:     "",
-				Strategy:       "",
-				StrategyParams: "",
-				ActivationTime: "",
-				Weight:         0,
-			},
-		},
-	}
-	if _, err := storDB.GetTPLCRs(&filter); err != utils.ErrNotFound {
-		t.Error(err)
-	}
-	// WRITE
-	var snd = []*utils.TPLcrRules{
-		&utils.TPLcrRules{
-			TPid:      "testTPid",
-			Direction: "*in",
-			Tenant:    "cgrates.org",
-			Category:  "LCR_STANDARD",
-			Account:   "1000",
-			Subject:   "test",
-			Rules: []*utils.TPLcrRule{
-				&utils.TPLcrRule{
-					DestinationId:  "",
-					RpCategory:     "LCR_STANDARD",
-					Strategy:       "*lowest_cost",
-					StrategyParams: "",
-					ActivationTime: "2012-01-01T00:00:00Z",
-					Weight:         1.0,
-				},
-			},
-		},
-		&utils.TPLcrRules{
-			TPid:      "testTPid",
-			Direction: "*out",
-			Tenant:    "cgrates.org",
-			Category:  "LCR_STANDARD",
-			Account:   "1000",
-			Subject:   "test",
-			Rules: []*utils.TPLcrRule{
-				&utils.TPLcrRule{
-					DestinationId:  "",
-					RpCategory:     "LCR_STANDARD",
-					Strategy:       "*lowest_cost",
-					StrategyParams: "",
-					ActivationTime: "2012-01-01T00:00:00Z",
-					Weight:         1.0,
-				},
-			},
-		},
-	}
-	if err := storDB.SetTPLCRs(snd); err != nil {
-		t.Error(err)
-	}
-	// READ
-	if rcv, err := storDB.GetTPLCRs(&filter); err != nil {
-		t.Error(err)
-	} else {
-		if !(reflect.DeepEqual(snd[0], rcv[0]) || reflect.DeepEqual(snd[0], rcv[1])) {
-			t.Errorf("\nExpecting:\n%+v\nReceived:\n%+v\n||\n%+v", utils.ToIJSON(snd[0]), utils.ToIJSON(rcv[0]), utils.ToIJSON(rcv[1]))
-		}
-	}
-	// UPDATE
-	snd[0].Rules[0].StrategyParams = "test"
-	snd[1].Rules[0].StrategyParams = "test"
-	if err := storDB.SetTPLCRs(snd); err != nil {
-		t.Error(err)
-	}
-	// READ
-	if rcv, err := storDB.GetTPLCRs(&filter); err != nil {
-		t.Error(err)
-	} else {
-		if !(reflect.DeepEqual(snd[0], rcv[0]) || reflect.DeepEqual(snd[0], rcv[1])) {
-			t.Errorf("\nExpecting:\n%+v\nReceived:\n%+v\n||\n%+v", utils.ToIJSON(snd[0]), utils.ToIJSON(rcv[0]), utils.ToIJSON(rcv[1]))
-		}
-	}
-	// REMOVE
-	if err := storDB.RemTpData("", "testTPid", nil); err != nil {
-		t.Error(err)
-	}
-	// READ
-	if _, err := storDB.GetTPLCRs(&filter); err != utils.ErrNotFound {
-		t.Error(err)
-	}
-}
-
 func testStorDBitCRUDTpDerivedChargers(t *testing.T) {
 	// READ
 	var filter = utils.TPDerivedChargers{
@@ -1081,7 +990,7 @@ func testStorDBitCRUDTpDerivedChargers(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPDerivedChargers{
-		&utils.TPDerivedChargers{
+		{
 			TPid:           "testTPid",
 			LoadId:         "TEST_LOADID",
 			Direction:      "*out",
@@ -1091,7 +1000,7 @@ func testStorDBitCRUDTpDerivedChargers(t *testing.T) {
 			Subject:        "test",
 			DestinationIds: "",
 			DerivedChargers: []*utils.TPDerivedCharger{
-				&utils.TPDerivedCharger{
+				{
 					RunId:                "default",
 					RunFilters:           "test",
 					ReqTypeField:         "test",
@@ -1112,7 +1021,7 @@ func testStorDBitCRUDTpDerivedChargers(t *testing.T) {
 				},
 			},
 		},
-		&utils.TPDerivedChargers{
+		{
 			TPid:           "testTPid",
 			LoadId:         "TEST_LOADID2",
 			Direction:      "*out",
@@ -1122,7 +1031,7 @@ func testStorDBitCRUDTpDerivedChargers(t *testing.T) {
 			Subject:        "test",
 			DestinationIds: "",
 			DerivedChargers: []*utils.TPDerivedCharger{
-				&utils.TPDerivedCharger{
+				{
 					RunId:                "default",
 					RunFilters:           "test",
 					ReqTypeField:         "test",
@@ -1179,113 +1088,6 @@ func testStorDBitCRUDTpDerivedChargers(t *testing.T) {
 	}
 }
 
-func testStorDBitCRUDTpCdrStats(t *testing.T) {
-	// READ
-	if _, err := storDB.GetTPCdrStats("testTPid", ""); err != utils.ErrNotFound {
-		t.Error(err)
-	}
-	// WRITE
-	var snd = []*utils.TPCdrStats{
-		&utils.TPCdrStats{
-			TPid: "testTPid",
-			ID:   "1",
-			CdrStats: []*utils.TPCdrStat{
-				&utils.TPCdrStat{
-					QueueLength:      "0",
-					TimeWindow:       "10m",
-					SaveInterval:     "3s",
-					Metrics:          "ACD",
-					SetupInterval:    "",
-					TORs:             "",
-					CdrHosts:         "",
-					CdrSources:       "",
-					ReqTypes:         "",
-					Directions:       "",
-					Tenants:          "tests",
-					Categories:       "",
-					Accounts:         "",
-					Subjects:         "1001",
-					DestinationIds:   "1003",
-					PddInterval:      "",
-					UsageInterval:    "",
-					Suppliers:        "suppl2",
-					DisconnectCauses: "",
-					MediationRunIds:  "*default",
-					RatedAccounts:    "",
-					RatedSubjects:    "",
-					CostInterval:     "",
-					ActionTriggers:   "CDRST1001_WARN",
-				},
-			},
-		},
-		&utils.TPCdrStats{
-			TPid: "testTPid",
-			ID:   "2",
-			CdrStats: []*utils.TPCdrStat{
-				&utils.TPCdrStat{
-					QueueLength:      "0",
-					TimeWindow:       "10m",
-					SaveInterval:     "3s",
-					Metrics:          "ACD",
-					SetupInterval:    "",
-					TORs:             "",
-					CdrHosts:         "",
-					CdrSources:       "",
-					ReqTypes:         "",
-					Directions:       "",
-					Tenants:          "tests",
-					Categories:       "",
-					Accounts:         "",
-					Subjects:         "1001",
-					DestinationIds:   "1003",
-					PddInterval:      "",
-					UsageInterval:    "",
-					Suppliers:        "suppl2",
-					DisconnectCauses: "",
-					MediationRunIds:  "*default",
-					RatedAccounts:    "",
-					RatedSubjects:    "",
-					CostInterval:     "",
-					ActionTriggers:   "CDRST1001_WARN",
-				},
-			},
-		},
-	}
-	if err := storDB.SetTPCdrStats(snd); err != nil {
-		t.Error(err)
-	}
-	// READ
-	if rcv, err := storDB.GetTPCdrStats("testTPid", ""); err != nil {
-		t.Error(err)
-	} else {
-		if !(reflect.DeepEqual(snd[0], rcv[0]) || reflect.DeepEqual(snd[0], rcv[1])) {
-			t.Errorf("\nExpecting:\n%+v\nReceived:\n%+v\n||\n%+v", utils.ToIJSON(snd[0]), utils.ToIJSON(rcv[0]), utils.ToIJSON(rcv[1]))
-		}
-	}
-	// UPDATE
-	snd[0].CdrStats[0].Categories = "test"
-	snd[1].CdrStats[0].Categories = "test"
-	if err := storDB.SetTPCdrStats(snd); err != nil {
-		t.Error(err)
-	}
-	// READ
-	if rcv, err := storDB.GetTPCdrStats("testTPid", ""); err != nil {
-		t.Error(err)
-	} else {
-		if !(reflect.DeepEqual(snd[0], rcv[0]) || reflect.DeepEqual(snd[0], rcv[1])) {
-			t.Errorf("\nExpecting:\n%+v\nReceived:\n%+v\n||\n%+v", utils.ToIJSON(snd[0]), utils.ToIJSON(rcv[0]), utils.ToIJSON(rcv[1]))
-		}
-	}
-	// REMOVE
-	if err := storDB.RemTpData("", "testTPid", nil); err != nil {
-		t.Error(err)
-	}
-	// READ
-	if _, err := storDB.GetTPCdrStats("testTPid", ""); err != utils.ErrNotFound {
-		t.Error(err)
-	}
-}
-
 func testStorDBitCRUDTpUsers(t *testing.T) {
 	// READ
 	var filter = utils.TPUsers{
@@ -1296,27 +1098,27 @@ func testStorDBitCRUDTpUsers(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPUsers{
-		&utils.TPUsers{
+		{
 			TPid:     "testTPid",
 			Tenant:   "cgrates.org",
 			Masked:   true,
 			UserName: "1001",
 			Weight:   0.1,
 			Profile: []*utils.TPUserProfile{
-				&utils.TPUserProfile{
+				{
 					AttrName:  "Account",
 					AttrValue: "1001",
 				},
 			},
 		},
-		&utils.TPUsers{
+		{
 			TPid:     "testTPid",
 			Tenant:   "cgrates.org",
 			Masked:   true,
 			UserName: "1002",
 			Weight:   0.1,
 			Profile: []*utils.TPUserProfile{
-				&utils.TPUserProfile{
+				{
 					AttrName:  "Account",
 					AttrValue: "1001",
 				},
@@ -1368,7 +1170,7 @@ func testStorDBitCRUDTpAliases(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*utils.TPAliases{
-		&utils.TPAliases{
+		{
 			TPid:      "testTPid",
 			Direction: "*out",
 			Tenant:    "cgrates.org",
@@ -1377,7 +1179,7 @@ func testStorDBitCRUDTpAliases(t *testing.T) {
 			Subject:   "1006",
 			Context:   "*rating",
 			Values: []*utils.TPAliasValue{
-				&utils.TPAliasValue{
+				{
 					DestinationId: "*any",
 					Target:        "Subject",
 					Original:      "1006",
@@ -1386,7 +1188,7 @@ func testStorDBitCRUDTpAliases(t *testing.T) {
 				},
 			},
 		},
-		&utils.TPAliases{
+		{
 			TPid:      "testTPid",
 			Direction: "*out",
 			Tenant:    "cgrates.org",
@@ -1395,7 +1197,7 @@ func testStorDBitCRUDTpAliases(t *testing.T) {
 			Subject:   "1006",
 			Context:   "*rating",
 			Values: []*utils.TPAliasValue{
-				&utils.TPAliasValue{
+				{
 					DestinationId: "*any",
 					Target:        "Subject",
 					Original:      "1006",
@@ -1447,23 +1249,23 @@ func testStorDBitCRUDTpResources(t *testing.T) {
 	}
 	//WRITE
 	var snd = []*utils.TPResource{
-		&utils.TPResource{
-			TPid:       "testTPid",
-			ID:         "testTag1",
-			Weight:     0.0,
-			Limit:      "test",
-			Thresholds: []string{"1x", "2x"},
-			FilterIDs:  []string{"FILTR_RES_1"},
-			Blocker:    true,
-			Stored:     true,
+		{
+			TPid:         "testTPid",
+			ID:           "testTag1",
+			Weight:       0.0,
+			Limit:        "test",
+			ThresholdIDs: []string{"1x", "2x"},
+			FilterIDs:    []string{"FILTR_RES_1"},
+			Blocker:      true,
+			Stored:       true,
 		},
-		&utils.TPResource{
+		{
 			TPid:               "testTPid",
 			ID:                 "testTag2",
 			ActivationInterval: &utils.TPActivationInterval{ActivationTime: "test"},
 			Weight:             0.0,
 			Limit:              "test",
-			Thresholds:         []string{"1x", "2x"},
+			ThresholdIDs:       []string{"1x", "2x"},
 			FilterIDs:          []string{"FLTR_RES_2"},
 			Blocker:            true,
 			Stored:             false,
@@ -1491,8 +1293,8 @@ func testStorDBitCRUDTpResources(t *testing.T) {
 		if !(reflect.DeepEqual(snd[0].Limit, rcv[0].Limit) || reflect.DeepEqual(snd[0].Limit, rcv[1].Limit)) {
 			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].Limit, rcv[0].Limit, rcv[1].Limit)
 		}
-		if !(reflect.DeepEqual(snd[0].Thresholds, rcv[0].Thresholds) || reflect.DeepEqual(snd[0].Thresholds, rcv[1].Thresholds)) {
-			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].Thresholds, rcv[0].Thresholds, rcv[1].Thresholds)
+		if !(reflect.DeepEqual(snd[0].ThresholdIDs, rcv[0].ThresholdIDs) || reflect.DeepEqual(snd[0].ThresholdIDs, rcv[1].ThresholdIDs)) {
+			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].ThresholdIDs, rcv[0].ThresholdIDs, rcv[1].ThresholdIDs)
 		}
 	}
 	// UPDATE
@@ -1521,8 +1323,8 @@ func testStorDBitCRUDTpResources(t *testing.T) {
 		if !(reflect.DeepEqual(snd[0].Limit, rcv[0].Limit) || reflect.DeepEqual(snd[0].Limit, rcv[1].Limit)) {
 			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].Limit, rcv[0].Limit, rcv[1].Limit)
 		}
-		if !(reflect.DeepEqual(snd[0].Thresholds, rcv[0].Thresholds) || reflect.DeepEqual(snd[0].Thresholds, rcv[1].Thresholds)) {
-			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].Thresholds, rcv[0].Thresholds, rcv[1].Thresholds)
+		if !(reflect.DeepEqual(snd[0].ThresholdIDs, rcv[0].ThresholdIDs) || reflect.DeepEqual(snd[0].ThresholdIDs, rcv[1].ThresholdIDs)) {
+			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].ThresholdIDs, rcv[0].ThresholdIDs, rcv[1].ThresholdIDs)
 		}
 	}
 	// REMOVE
@@ -1542,7 +1344,7 @@ func testStorDBitCRUDTpStats(t *testing.T) {
 	}
 	//WRITE
 	eTPs := []*utils.TPStats{
-		&utils.TPStats{
+		{
 			TPid:      "TEST_TPID",
 			Tenant:    "Test",
 			ID:        "Stats1",
@@ -1553,22 +1355,22 @@ func testStorDBitCRUDTpStats(t *testing.T) {
 			QueueLength: 100,
 			TTL:         "1s",
 			Metrics: []*utils.MetricWithParams{
-				&utils.MetricWithParams{
+				{
 					MetricID:   "*asr",
 					Parameters: "",
 				},
-				&utils.MetricWithParams{
+				{
 					MetricID:   "*acd",
 					Parameters: "",
 				},
-				&utils.MetricWithParams{
+				{
 					MetricID:   "*acc",
 					Parameters: "",
 				},
 			},
-			Thresholds: []string{"THRESH1", "THRESH2"},
-			Weight:     20.0,
-			MinItems:   1,
+			ThresholdIDs: []string{"THRESH1", "THRESH2"},
+			Weight:       20.0,
+			MinItems:     1,
 		},
 	}
 
@@ -1635,24 +1437,24 @@ func testStorDBitCRUDCDRs(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*CDR{
-		&CDR{
+		{
 			CGRID:       "88ed9c38005f07576a1e1af293063833b60edcc6",
 			RunID:       "1",
 			OrderID:     0,
 			OriginHost:  "host1",
 			OriginID:    "1",
 			Usage:       1000000000,
-			CostDetails: &CallCost{Timespans: TimeSpans{}},
+			CostDetails: NewBareEventCost(),
 			ExtraFields: map[string]string{"Service-Context-Id": "voice@huawei.com"},
 		},
-		&CDR{
+		{
 			CGRID:       "88ed9c38005f07576a1e1af293063833b60edcc2",
 			RunID:       "2",
 			OrderID:     0,
 			OriginHost:  "host2",
 			OriginID:    "2",
 			Usage:       1000000000,
-			CostDetails: &CallCost{Timespans: TimeSpans{}},
+			CostDetails: NewBareEventCost(),
 			ExtraFields: map[string]string{"Service-Context-Id": "voice@huawei.com"},
 		},
 	}
@@ -1723,17 +1525,17 @@ func testStorDBitCRUDCDRs(t *testing.T) {
 		if !(reflect.DeepEqual(snd[0].Cost, rcv[0].Cost) || reflect.DeepEqual(snd[0].Cost, rcv[1].Cost)) {
 			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].Cost, rcv[0].Cost, rcv[1].Cost)
 		}
-		if !(reflect.DeepEqual(snd[0].CostDetails, rcv[0].CostDetails) || reflect.DeepEqual(snd[0].CostDetails, rcv[1].CostDetails)) {
-			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].CostDetails, rcv[0].CostDetails, rcv[1].CostDetails)
-		}
 		if !(reflect.DeepEqual(snd[0].ExtraInfo, rcv[0].ExtraInfo) || reflect.DeepEqual(snd[0].ExtraInfo, rcv[1].ExtraInfo)) {
 			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].ExtraInfo, rcv[0].ExtraInfo, rcv[1].ExtraInfo)
 		}
-		if !(reflect.DeepEqual(snd[0].Rated, rcv[0].Rated) || reflect.DeepEqual(snd[0].Rated, rcv[1].Rated)) {
-			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].Rated, rcv[0].Rated, rcv[1].Rated)
+		if !(reflect.DeepEqual(snd[0].PreRated, rcv[0].PreRated) || reflect.DeepEqual(snd[0].PreRated, rcv[1].PreRated)) {
+			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].PreRated, rcv[0].PreRated, rcv[1].PreRated)
 		}
 		if !(reflect.DeepEqual(snd[0].Partial, rcv[0].Partial) || reflect.DeepEqual(snd[0].Partial, rcv[1].Partial)) {
 			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].Partial, rcv[0].Partial, rcv[1].Partial)
+		}
+		if !reflect.DeepEqual(snd[0].CostDetails, rcv[0].CostDetails) {
+			t.Errorf("Expecting: %+v, received: %+v", snd[0].CostDetails, rcv[0].CostDetails)
 		}
 	}
 	// UPDATE
@@ -1769,19 +1571,19 @@ func testStorDBitCRUDSMCosts(t *testing.T) {
 	}
 	// WRITE
 	var snd = []*SMCost{
-		&SMCost{
+		{
 			CGRID:       "88ed9c38005f07576a1e1af293063833b60edcc6",
 			RunID:       "1",
 			OriginHost:  "host2",
 			OriginID:    "2",
-			CostDetails: &CallCost{Timespans: TimeSpans{}},
+			CostDetails: NewBareEventCost(),
 		},
-		&SMCost{
+		{
 			CGRID:       "88ed9c38005f07576a1e1af293063833b60edcc2",
 			RunID:       "2",
 			OriginHost:  "host2",
 			OriginID:    "2",
-			CostDetails: &CallCost{Timespans: TimeSpans{}},
+			CostDetails: NewBareEventCost(),
 		},
 	}
 	for _, smc := range snd {
@@ -1805,8 +1607,8 @@ func testStorDBitCRUDSMCosts(t *testing.T) {
 		if !(reflect.DeepEqual(snd[0].OriginID, rcv[0].OriginID) || reflect.DeepEqual(snd[0].OriginID, rcv[1].OriginID)) {
 			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].OriginID, rcv[0].OriginID, rcv[1].OriginID)
 		}
-		if !(reflect.DeepEqual(snd[0].CostDetails, rcv[0].CostDetails) || reflect.DeepEqual(snd[0].CostDetails, rcv[1].CostDetails)) {
-			t.Errorf("Expecting: %+v, received: %+v || %+v", snd[0].CostDetails, rcv[0].CostDetails, rcv[1].CostDetails)
+		if !reflect.DeepEqual(snd[0].CostDetails, rcv[0].CostDetails) {
+			t.Errorf("Expecting: %+v, received: %+v ", utils.ToJSON(snd[0].CostDetails), utils.ToJSON(rcv[0].CostDetails))
 		}
 	}
 	// REMOVE
@@ -1822,14 +1624,14 @@ func testStorDBitCRUDSMCosts(t *testing.T) {
 }
 
 func testStorDBitFlush(t *testing.T) {
-	if err := storDB.Flush(path.Join(cfg.DataFolderPath, "storage", cfg.StorDBType)); err != nil {
+	if err := storDB.Flush(path.Join(cfg.DataFolderPath, "storage", cfg.StorDbCfg().StorDBType)); err != nil {
 		t.Error(err)
 	}
 }
 
 func testStorDBitCRUDVersions(t *testing.T) {
 	// CREATE
-	vrs := Versions{utils.COST_DETAILS: 1}
+	vrs := Versions{utils.CostDetails: 1}
 	if err := storDB.SetVersions(vrs, true); err != nil {
 		t.Error(err)
 	}
@@ -1840,7 +1642,7 @@ func testStorDBitCRUDVersions(t *testing.T) {
 	}
 
 	// UPDATE
-	vrs = Versions{utils.COST_DETAILS: 2, "OTHER_KEY": 1}
+	vrs = Versions{utils.CostDetails: 2, "OTHER_KEY": 1}
 	if err := storDB.SetVersions(vrs, false); err != nil {
 		t.Error(err)
 	}
@@ -1855,9 +1657,9 @@ func testStorDBitCRUDVersions(t *testing.T) {
 	if err := storDB.RemoveVersions(vrs); err != nil {
 		t.Error(err)
 	}
-	if rcv, err := storDB.GetVersions(utils.COST_DETAILS); err != nil {
+	if rcv, err := storDB.GetVersions(utils.CostDetails); err != nil {
 		t.Error(err)
-	} else if len(rcv) != 1 || rcv[utils.COST_DETAILS] != 2 {
+	} else if len(rcv) != 1 || rcv[utils.CostDetails] != 2 {
 		t.Errorf("Received: %+v", rcv)
 	}
 

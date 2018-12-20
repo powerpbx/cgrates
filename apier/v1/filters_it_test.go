@@ -21,15 +21,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package v1
 
 import (
-	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/utils"
 	"net/rpc"
 	"net/rpc/jsonrpc"
 	"path"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/utils"
 )
 
 var (
@@ -38,7 +39,6 @@ var (
 	filterRPC       *rpc.Client
 	filterDataDir   = "/usr/share/cgrates"
 	filter          *engine.Filter
-	filterDelay     int
 	filterConfigDIR string //run tests for specific configuration
 )
 
@@ -50,9 +50,10 @@ var sTestsFilter = []func(t *testing.T){
 	testFilterGetFilterBeforeSet,
 	testFilterSetFilter,
 	testFilterGetFilterAfterSet,
+	testFilterGetFilterIDs,
 	testFilterUpdateFilter,
 	testFilterGetFilterAfterUpdate,
-	testFilterRemFilter,
+	testFilterRemoveFilter,
 	testFilterGetFilterAfterRemove,
 	testFilterKillEngine,
 }
@@ -72,13 +73,6 @@ func TestFilterITMongo(t *testing.T) {
 	}
 }
 
-func TestFilterITPG(t *testing.T) {
-	filterConfigDIR = "tutpostgres"
-	for _, stest := range sTestsFilter {
-		t.Run(filterConfigDIR, stest)
-	}
-}
-
 func testFilterInitCfg(t *testing.T) {
 	var err error
 	filterCfgPath = path.Join(filterDataDir, "conf", "samples", filterConfigDIR)
@@ -88,12 +82,6 @@ func testFilterInitCfg(t *testing.T) {
 	}
 	filterCfg.DataFolderPath = filterDataDir // Share DataFolderPath through config towards StoreDb for Flush()
 	config.SetCgrConfig(filterCfg)
-	switch filterConfigDIR {
-	case "tutmongo": // Mongo needs more time to reset db, need to investigate
-		filterDelay = 2000
-	default:
-		filterDelay = 1000
-	}
 }
 
 // Wipe out the cdr database
@@ -105,7 +93,7 @@ func testFilterResetDataDB(t *testing.T) {
 
 // Start CGR Engine
 func testFilterStartEngine(t *testing.T) {
-	if _, err := engine.StopStartEngine(filterCfgPath, filterDelay); err != nil {
+	if _, err := engine.StopStartEngine(filterCfgPath, *waitRater); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -113,7 +101,7 @@ func testFilterStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func testFilterRpcConn(t *testing.T) {
 	var err error
-	filterRPC, err = jsonrpc.Dial("tcp", filterCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	filterRPC, err = jsonrpc.Dial("tcp", filterCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,8 +118,8 @@ func testFilterSetFilter(t *testing.T) {
 	filter = &engine.Filter{
 		Tenant: "cgrates.org",
 		ID:     "Filter1",
-		RequestFilters: []*engine.RequestFilter{
-			&engine.RequestFilter{
+		Rules: []*engine.FilterRule{
+			{
 				FieldName: "*string",
 				Type:      "Account",
 				Values:    []string{"1001", "1002"},
@@ -151,6 +139,16 @@ func testFilterSetFilter(t *testing.T) {
 	}
 }
 
+func testFilterGetFilterIDs(t *testing.T) {
+	expected := []string{"Filter1"}
+	var result []string
+	if err := filterRPC.Call("ApierV1.GetFilterIDs", "cgrates.org", &result); err != nil {
+		t.Error(err)
+	} else if len(expected) != len(result) {
+		t.Errorf("Expecting : %+v, received: %+v", expected, result)
+	}
+}
+
 func testFilterGetFilterAfterSet(t *testing.T) {
 	var reply *engine.Filter
 	if err := filterRPC.Call("ApierV1.GetFilter", &utils.TenantID{Tenant: "cgrates.org", ID: "Filter1"}, &reply); err != nil {
@@ -161,13 +159,13 @@ func testFilterGetFilterAfterSet(t *testing.T) {
 }
 
 func testFilterUpdateFilter(t *testing.T) {
-	filter.RequestFilters = []*engine.RequestFilter{
-		&engine.RequestFilter{
+	filter.Rules = []*engine.FilterRule{
+		{
 			FieldName: "*string",
 			Type:      "Account",
 			Values:    []string{"1001", "1002"},
 		},
-		&engine.RequestFilter{
+		{
 			FieldName: engine.MetaPrefix,
 			Type:      "Destination",
 			Values:    []string{"10", "20"},
@@ -190,9 +188,9 @@ func testFilterGetFilterAfterUpdate(t *testing.T) {
 	}
 }
 
-func testFilterRemFilter(t *testing.T) {
+func testFilterRemoveFilter(t *testing.T) {
 	var resp string
-	if err := filterRPC.Call("ApierV1.RemFilter", &utils.TenantID{Tenant: "cgrates.org", ID: "Filter1"}, &resp); err != nil {
+	if err := filterRPC.Call("ApierV1.RemoveFilter", &utils.TenantID{Tenant: "cgrates.org", ID: "Filter1"}, &resp); err != nil {
 		t.Error(err)
 	} else if resp != utils.OK {
 		t.Error("Unexpected reply returned", resp)
@@ -207,7 +205,7 @@ func testFilterGetFilterAfterRemove(t *testing.T) {
 }
 
 func testFilterKillEngine(t *testing.T) {
-	if err := engine.KillEngine(filterDelay); err != nil {
+	if err := engine.KillEngine(100); err != nil {
 		t.Error(err)
 	}
 }

@@ -30,7 +30,6 @@ import (
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
-	"github.com/cgrates/cgrates/sessionmanager"
 	"github.com/cgrates/cgrates/utils"
 )
 
@@ -75,7 +74,7 @@ func TestSMGV1StartEngine(t *testing.T) {
 // Connect rpc client to rater
 func TestSMGV1RpcConn(t *testing.T) {
 	var err error
-	smgV1Rpc, err = jsonrpc.Dial("tcp", smgV1Cfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	smgV1Rpc, err = jsonrpc.Dial("tcp", smgV1Cfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +83,7 @@ func TestSMGV1RpcConn(t *testing.T) {
 // Load the tariff plan, creating accounts and their balances
 func TestSMGV1LoadTariffPlanFromFolder(t *testing.T) {
 	var reply string
-	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "tutorial")}
+	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "oldtutorial")}
 	if err := smgV1Rpc.Call("ApierV1.LoadTariffPlanFromFolder", attrs, &reply); err != nil {
 		t.Error(err)
 	}
@@ -102,7 +101,7 @@ func TestSMGV1CacheStats(t *testing.T) {
 	var rcvStats *utils.CacheStats
 	expectedStats := &utils.CacheStats{Destinations: 5, ReverseDestinations: 7, RatingPlans: 4, RatingProfiles: 10,
 		Actions: 9, ActionPlans: 4, AccountActionPlans: 5, SharedGroups: 1, DerivedChargers: 1,
-		LcrProfiles: 5, CdrStats: 6, Users: 3, Aliases: 1, ReverseAliases: 2, ResourceProfiles: 3, Resources: 3, StatQueues: 1,
+		Users: 3, Aliases: 1, ReverseAliases: 2, ResourceProfiles: 3, Resources: 3, StatQueues: 1,
 		StatQueueProfiles: 1, Thresholds: 7, ThresholdProfiles: 7, Filters: 16, SupplierProfiles: 3, AttributeProfiles: 1}
 	var args utils.AttrCacheStats
 	if err := smgV1Rpc.Call("ApierV1.GetCacheStats", args, &rcvStats); err != nil {
@@ -126,7 +125,7 @@ func TestSMGV1AccountsBefore(t *testing.T) {
 
 // Make sure account was debited properly
 func TestSMGV1GetMaxUsage(t *testing.T) {
-	setupReq := &sessionmanager.SMGenericEvent{utils.RequestType: utils.META_PREPAID, utils.Tenant: "cgrates.org",
+	setupReq := map[string]interface{}{utils.RequestType: utils.META_PREPAID, utils.Tenant: "cgrates.org",
 		utils.Account: "1003", utils.Destination: "1002", utils.SetupTime: "2015-11-10T15:20:00Z"}
 	var maxTime float64
 	if err := smgV1Rpc.Call("SMGenericV1.GetMaxUsage", setupReq, &maxTime); err != nil {

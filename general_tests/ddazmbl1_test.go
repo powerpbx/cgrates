@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cgrates/cgrates/cache"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/scheduler"
 	"github.com/cgrates/cgrates/utils"
@@ -49,7 +48,6 @@ RP_UK,DR_UK_Mobile_BIG5,ALWAYS,10`
 	ratingProfiles := `*out,cgrates.org,call,*any,2013-01-06T00:00:00Z,RP_UK,,
 *out,cgrates.org,call,discounted_minutes,2013-01-06T00:00:00Z,RP_UK_Mobile_BIG5_PKG,,`
 	sharedGroups := ``
-	lcrs := ``
 	actions := `TOPUP10_AC,*topup_reset,,,,*monetary,*out,,*any,,,*unlimited,,10,10,false,false,10
 TOPUP10_AC1,*topup_reset,,,,*voice,*out,,DST_UK_Mobile_BIG5,discounted_minutes,,*unlimited,,40000000000,10,false,false,10`
 	actionPlans := `TOPUP10_AT,TOPUP10_AC,ASAP,10
@@ -57,7 +55,6 @@ TOPUP10_AT,TOPUP10_AC1,ASAP,10`
 	actionTriggers := ``
 	accountActions := `cgrates.org,12344,TOPUP10_AT,,,`
 	derivedCharges := ``
-	cdrStats := ``
 	users := ``
 	aliases := ``
 	resLimits := ``
@@ -66,12 +63,13 @@ TOPUP10_AT,TOPUP10_AC1,ASAP,10`
 	filters := ``
 	suppliers := ``
 	aliasProfiles := ``
+	chargerProfiles := ``
 	csvr := engine.NewTpReader(dataDB.DataDB(),
 		engine.NewStringCSVStorage(',', destinations, timings, rates,
 			destinationRates, ratingPlans, ratingProfiles,
-			sharedGroups, lcrs, actions, actionPlans, actionTriggers, accountActions,
-			derivedCharges, cdrStats, users, aliases, resLimits, stats,
-			thresholds, filters, suppliers, aliasProfiles), "", "")
+			sharedGroups, actions, actionPlans, actionTriggers, accountActions,
+			derivedCharges, users, aliases, resLimits, stats,
+			thresholds, filters, suppliers, aliasProfiles, chargerProfiles), "", "")
 	if err := csvr.LoadDestinations(); err != nil {
 		t.Fatal(err)
 	}
@@ -91,9 +89,6 @@ TOPUP10_AT,TOPUP10_AC1,ASAP,10`
 		t.Fatal(err)
 	}
 	if err := csvr.LoadSharedGroups(); err != nil {
-		t.Fatal(err)
-	}
-	if err := csvr.LoadLCRs(); err != nil {
 		t.Fatal(err)
 	}
 	if err := csvr.LoadActions(); err != nil {
@@ -117,20 +112,22 @@ TOPUP10_AT,TOPUP10_AC1,ASAP,10`
 	} else if acnt == nil {
 		t.Error("No account saved")
 	}
-	cache.Flush()
+	engine.Cache.Clear(nil)
 
-	dataDB.LoadDataDBCache(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	dataDB.LoadDataDBCache(nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	if cachedDests := cache.CountEntries(utils.DESTINATION_PREFIX); cachedDests != 0 {
+	if cachedDests := len(engine.Cache.GetItemIDs(utils.CacheDestinations, "")); cachedDests != 0 {
 		t.Error("Wrong number of cached destinations found", cachedDests)
 	}
-	if cachedRPlans := cache.CountEntries(utils.RATING_PLAN_PREFIX); cachedRPlans != 2 {
+	if cachedRPlans := len(engine.Cache.GetItemIDs(utils.CacheRatingPlans, "")); cachedRPlans != 2 {
 		t.Error("Wrong number of cached rating plans found", cachedRPlans)
 	}
-	if cachedRProfiles := cache.CountEntries(utils.RATING_PROFILE_PREFIX); cachedRProfiles != 0 {
+	if cachedRProfiles := len(engine.Cache.GetItemIDs(utils.CacheRatingProfiles, "")); cachedRProfiles != 0 {
 		t.Error("Wrong number of cached rating profiles found", cachedRProfiles)
 	}
-	if cachedActions := cache.CountEntries(utils.ACTION_PREFIX); cachedActions != 0 {
+	if cachedActions := len(engine.Cache.GetItemIDs(utils.CacheActions, "")); cachedActions != 0 {
 		t.Error("Wrong number of cached actions found", cachedActions)
 	}
 }

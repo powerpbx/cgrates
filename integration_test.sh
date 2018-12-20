@@ -1,4 +1,5 @@
 #! /usr/bin/env sh
+go clean --cache
 ./test.sh
 gen=$?
 echo 'go test github.com/cgrates/cgrates/apier/v1 -tags=integration'
@@ -25,11 +26,14 @@ gnr=$?
 echo 'go test github.com/cgrates/cgrates/agents -tags=integration'
 go test github.com/cgrates/cgrates/agents -tags=integration
 agts=$?
-echo 'go test github.com/cgrates/cgrates/sessionmanager -tags=integration'
-go test github.com/cgrates/cgrates/sessionmanager -tags=integration
+echo 'go test github.com/cgrates/cgrates/sessions -tags=integration'
+go test github.com/cgrates/cgrates/sessions -tags=integration
 smg=$?
 echo 'go test github.com/cgrates/cgrates/migrator -tags=integration'
 go test github.com/cgrates/cgrates/migrator -tags=integration
 mgr=$?
+echo 'go test github.com/cgrates/cgrates/dispatchers -tags=integration'
+go test github.com/cgrates/cgrates/dispatchers -tags=integration
+dis=$?
 
-exit $gen && $ap1 && $ap2 && $en && $cdrc && $cfg && $utl && $gnr && $agts && $smg && $mgr
+exit $gen && $ap1 && $ap2 && $en && $cdrc && $cfg && $utl && $gnr && $agts && $smg && $mgr && $dis

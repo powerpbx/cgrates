@@ -30,7 +30,7 @@ type AttrGetCost struct {
 	Tenant      string
 	Category    string
 	Subject     string
-	AnswerTime  time.Time
+	AnswerTime  string
 	Destination string
 	Usage       string
 	RatingPlanId       string
@@ -107,6 +107,10 @@ func (apier *ApierV1) GetCost(attrs AttrGetCost, ec *engine.EventCost) error {
 				}
 			} ()
 		}
+	aTime, err := utils.ParseTimeDetectLayout(attrs.AnswerTime,
+		apier.Config.GeneralCfg().DefaultTimezone)
+	if err != nil {
+		return err
 	}
 
 	cd := &engine.CallDescriptor{
@@ -115,8 +119,8 @@ func (apier *ApierV1) GetCost(attrs AttrGetCost, ec *engine.EventCost) error {
 		Tenant:        attrs.Tenant,
 		Subject:       attrs.Subject,
 		Destination:   attrs.Destination,
-		TimeStart:     attrs.AnswerTime,
-		TimeEnd:       attrs.AnswerTime.Add(usage),
+		TimeStart:     aTime,
+		TimeEnd:       aTime.Add(usage),
 		DurationIndex: usage,
 	}
 	var cc engine.CallCost
@@ -132,18 +136,23 @@ type AttrGetDataCost struct {
 	Tenant     string
 	Category   string
 	Subject    string
-	AnswerTime time.Time
+	AnswerTime string
 	Usage      time.Duration // the call duration so far (till TimeEnd)
 }
 
 func (apier *ApierV1) GetDataCost(attrs AttrGetDataCost, reply *engine.DataCost) error {
+	aTime, err := utils.ParseTimeDetectLayout(attrs.AnswerTime,
+		apier.Config.GeneralCfg().DefaultTimezone)
+	if err != nil {
+		return err
+	}
 	cd := &engine.CallDescriptor{
 		Direction:     utils.OUT,
 		Category:      attrs.Category,
 		Tenant:        attrs.Tenant,
 		Subject:       attrs.Subject,
-		TimeStart:     attrs.AnswerTime,
-		TimeEnd:       attrs.AnswerTime.Add(attrs.Usage),
+		TimeStart:     aTime,
+		TimeEnd:       aTime.Add(attrs.Usage),
 		DurationIndex: attrs.Usage,
 		TOR:           utils.DATA,
 	}

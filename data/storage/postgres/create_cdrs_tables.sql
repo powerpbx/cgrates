@@ -13,7 +13,7 @@ CREATE TABLE cdrs (
  tor VARCHAR(16) NOT NULL,
  request_type VARCHAR(24) NOT NULL,
  tenant VARCHAR(64) NOT NULL,
- category VARCHAR(32) NOT NULL,
+ category VARCHAR(64) NOT NULL,
  account VARCHAR(128) NOT NULL,
  subject VARCHAR(128) NOT NULL,
  destination VARCHAR(128) NOT NULL,
@@ -35,13 +35,13 @@ DROP INDEX IF EXISTS deleted_at_cp_idx;
 CREATE INDEX deleted_at_cp_idx ON cdrs (deleted_at);
 
 
-DROP TABLE IF EXISTS sm_costs;
-CREATE TABLE sm_costs (
+DROP TABLE IF EXISTS sessions_costs;
+CREATE TABLE sessions_costs (
   id SERIAL PRIMARY KEY,
   cgrid VARCHAR(40) NOT NULL,
   run_id  VARCHAR(64) NOT NULL,
   origin_host VARCHAR(64) NOT NULL,
-  origin_id VARCHAR(64) NOT NULL,
+  origin_id VARCHAR(128) NOT NULL,
   cost_source VARCHAR(64) NOT NULL,
   usage BIGINT NOT NULL,
   cost_details jsonb,
@@ -49,11 +49,11 @@ CREATE TABLE sm_costs (
   deleted_at TIMESTAMP WITH TIME ZONE NULL,
   UNIQUE (cgrid, run_id)
 );
-DROP INDEX IF EXISTS cgrid_smcost_idx;
-CREATE INDEX cgrid_smcost_idx ON sm_costs (cgrid, run_id);
-DROP INDEX IF EXISTS origin_smcost_idx;
-CREATE INDEX origin_smcost_idx ON sm_costs (origin_host, origin_id);
-DROP INDEX IF EXISTS run_origin_smcost_idx;
-CREATE INDEX run_origin_smcost_idx ON sm_costs (run_id, origin_id);
-DROP INDEX IF EXISTS deleted_at_smcost_idx;
-CREATE INDEX deleted_at_smcost_idx ON sm_costs (deleted_at);
+DROP INDEX IF EXISTS cgrid_sessionscost_idx;
+CREATE INDEX cgrid_sessionscost_idx ON sessions_costs (cgrid, run_id);
+DROP INDEX IF EXISTS origin_sessionscost_idx;
+CREATE INDEX origin_sessionscost_idx ON sessions_costs (origin_host, origin_id);
+DROP INDEX IF EXISTS run_origin_sessionscost_idx;
+CREATE INDEX run_origin_sessionscost_idx ON sessions_costs (run_id, origin_id);
+DROP INDEX IF EXISTS deleted_at_sessionscost_idx;
+CREATE INDEX deleted_at_sessionscost_idx ON sessions_costs (deleted_at);

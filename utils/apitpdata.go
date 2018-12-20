@@ -254,6 +254,26 @@ func (rpf *TPRatingProfile) SetRatingProfilesId(id string) error {
 	return nil
 }
 
+type AttrSetRatingProfile struct {
+	Tenant                string                // Tenant's Id
+	Category              string                // TypeOfRecord
+	Direction             string                // Traffic direction, OUT is the only one supported for now
+	Subject               string                // Rating subject, usually the same as account
+	Overwrite             bool                  // Overwrite if exists
+	RatingPlanActivations []*TPRatingActivation // Activate rating plans at specific time
+}
+
+type AttrGetRatingProfile struct {
+	Tenant    string // Tenant's Id
+	Category  string // TypeOfRecord
+	Direction string // Traffic direction, OUT is the only one supported for now
+	Subject   string // Rating subject, usually the same as account
+}
+
+func (self *AttrGetRatingProfile) GetID() string {
+	return ConcatenatedKey(self.Direction, self.Tenant, self.Category, self.Subject)
+}
+
 type TPRatingActivation struct {
 	ActivationTime   string // Time when this profile will become active, defined as unix epoch time
 	RatingPlanId     string // Id of RatingPlan profile
@@ -337,42 +357,6 @@ type TPSharedGroup struct {
 	RatingSubject string
 }
 
-type TPLcrRules struct {
-	TPid      string
-	Direction string
-	Tenant    string
-	Category  string
-	Account   string
-	Subject   string
-	Rules     []*TPLcrRule
-}
-
-type TPLcrRule struct {
-	DestinationId  string
-	RpCategory     string
-	Strategy       string
-	StrategyParams string
-	ActivationTime string
-	Weight         float64
-}
-
-func (lcr *TPLcrRules) GetLcrRuleId() string {
-	return LCRKey(lcr.Direction, lcr.Tenant, lcr.Category, lcr.Account, lcr.Subject)
-}
-
-func (lcr *TPLcrRules) SetId(id string) error {
-	ids := strings.Split(id, CONCATENATED_KEY_SEP)
-	if len(ids) != 5 {
-		return fmt.Errorf("wrong LcrRule Id: %s", id)
-	}
-	lcr.Direction = ids[0]
-	lcr.Tenant = ids[1]
-	lcr.Category = ids[2]
-	lcr.Account = ids[3]
-	lcr.Subject = ids[4]
-	return nil
-}
-
 type TpAlias struct {
 	Direction string
 	Tenant    string
@@ -452,39 +436,6 @@ func (tu *TPUsers) SetId(id string) error {
 	tu.Tenant = vals[0]
 	tu.UserName = vals[1]
 	return nil
-}
-
-type TPCdrStats struct {
-	TPid     string
-	ID       string
-	CdrStats []*TPCdrStat
-}
-
-type TPCdrStat struct {
-	QueueLength      string
-	TimeWindow       string
-	SaveInterval     string
-	Metrics          string
-	SetupInterval    string
-	TORs             string
-	CdrHosts         string
-	CdrSources       string
-	ReqTypes         string
-	Directions       string
-	Tenants          string
-	Categories       string
-	Accounts         string
-	Subjects         string
-	DestinationIds   string
-	PddInterval      string
-	UsageInterval    string
-	Suppliers        string
-	DisconnectCauses string
-	MediationRunIds  string
-	RatedAccounts    string
-	RatedSubjects    string
-	CostInterval     string
-	ActionTriggers   string
 }
 
 type TPDerivedChargers struct {
@@ -664,7 +615,6 @@ type ArgsCache struct {
 	AccountActionPlanIDs  *[]string
 	ActionTriggerIDs      *[]string
 	SharedGroupIDs        *[]string
-	LCRids                *[]string
 	DerivedChargerIDs     *[]string
 	AliasIDs              *[]string
 	ReverseAliasIDs       *[]string
@@ -677,6 +627,7 @@ type ArgsCache struct {
 	FilterIDs             *[]string
 	SupplierProfileIDs    *[]string
 	AttributeProfileIDs   *[]string
+	ChargerProfileIDs     *[]string
 }
 
 // Data used to do remote cache reloads via api
@@ -706,8 +657,6 @@ type CacheStats struct {
 	AccountActionPlans  int
 	SharedGroups        int
 	DerivedChargers     int
-	LcrProfiles         int
-	CdrStats            int
 	Users               int
 	Aliases             int
 	ReverseAliases      int
@@ -720,6 +669,7 @@ type CacheStats struct {
 	Filters             int
 	SupplierProfiles    int
 	AttributeProfiles   int
+	ChargerProfiles     int
 }
 
 type AttrExpFileCdrs struct {
@@ -827,6 +777,7 @@ type AttrGetCdrs struct {
 	TimeEnd             string   // If provided, it will represent the end of the CDRs interval (<)
 	SkipErrors          bool     // Do not export errored CDRs
 	SkipRated           bool     // Do not export rated CDRs
+	OrderBy             string   // Ascendent/Descendent
 	Paginator
 }
 
@@ -846,6 +797,7 @@ func (self *AttrGetCdrs) AsCDRsFilter(timezone string) (*CDRsFilter, error) {
 		OrderIDStart:        self.OrderIdStart,
 		OrderIDEnd:          self.OrderIdEnd,
 		Paginator:           self.Paginator,
+		OrderBy:             self.OrderBy,
 	}
 	if len(self.TimeStart) != 0 {
 		if answerTimeStart, err := ParseTimeDetectLayout(self.TimeStart, timezone); err != nil {
@@ -1045,6 +997,7 @@ type CDRsFilter struct {
 	MaxCost                *float64          // End of the usage interval (<)
 	Unscoped               bool              // Include soft-deleted records in results
 	Count                  bool              // If true count the items instead of returning data
+	OrderBy                string            // Can be ordered by OrderID,AnswerTime,SetupTime,Cost,Usage
 	Paginator
 }
 
@@ -1093,6 +1046,7 @@ type RPCCDRsFilter struct {
 	MaxUsage               string            // End of the usage interval (<)
 	MinCost                *float64          // Start of the cost interval (>=)
 	MaxCost                *float64          // End of the usage interval (<)
+	OrderBy                string            // Ascendent/Descendent
 	Paginator                                // Add pagination
 }
 
@@ -1133,6 +1087,7 @@ func (self *RPCCDRsFilter) AsCDRsFilter(timezone string) (*CDRsFilter, error) {
 		MinCost:        self.MinCost,
 		MaxCost:        self.MaxCost,
 		Paginator:      self.Paginator,
+		OrderBy:        self.OrderBy,
 	}
 	if len(self.SetupTimeStart) != 0 {
 		if sTimeStart, err := ParseTimeDetectLayout(self.SetupTimeStart, timezone); err != nil {
@@ -1268,7 +1223,7 @@ type TPResource struct {
 	Blocker            bool // blocker flag to stop processing on filters matched
 	Stored             bool
 	Weight             float64  // Weight to sort the ResourceLimits
-	Thresholds         []string // Thresholds to check after changing Limit
+	ThresholdIDs       []string // Thresholds to check after changing Limit
 }
 
 // TPActivationInterval represents an activation interval for an item
@@ -1284,8 +1239,9 @@ type AttrRLsCache struct {
 
 type ArgRSv1ResourceUsage struct {
 	CGREvent
-	UsageID string // ResourceUsage Identifier
-	Units   float64
+	UsageID  string // ResourceUsage Identifier
+	UsageTTL *time.Duration
+	Units    float64
 }
 
 func (args *ArgRSv1ResourceUsage) TenantID() string {
@@ -1294,11 +1250,13 @@ func (args *ArgRSv1ResourceUsage) TenantID() string {
 
 type ArgsComputeFilterIndexes struct {
 	Tenant       string
+	Context      string
 	AttributeIDs *[]string
 	ResourceIDs  *[]string
 	StatIDs      *[]string
 	SupplierIDs  *[]string
 	ThresholdIDs *[]string
+	ChargerIDs   *[]string
 }
 
 // AsActivationTime converts TPActivationInterval into ActivationInterval
@@ -1342,7 +1300,7 @@ type TPStats struct {
 	Stored             bool
 	Weight             float64
 	MinItems           int
-	Thresholds         []string
+	ThresholdIDs       []string
 }
 
 type MetricWithParams struct {
@@ -1356,7 +1314,7 @@ type TPThreshold struct {
 	ID                 string
 	FilterIDs          []string
 	ActivationInterval *TPActivationInterval // Time when this limit becomes active and expires
-	Recurrent          bool
+	MaxHits            int
 	MinHits            int
 	MinSleep           string
 	Blocker            bool    // blocker flag to stop processing on filters matched
@@ -1387,6 +1345,7 @@ type TPSupplier struct {
 	ResourceIDs        []string // queried in some strategies
 	StatIDs            []string // queried in some strategies
 	Weight             float64
+	Blocker            bool
 	SupplierParameters string
 }
 
@@ -1397,9 +1356,8 @@ type TPSupplierProfile struct {
 	FilterIDs          []string
 	ActivationInterval *TPActivationInterval // Time when this limit becomes active and expires
 	Sorting            string
-	SortingParams      []string
+	SortingParameters  []string
 	Suppliers          []*TPSupplier
-	Blocker            bool
 	Weight             float64
 }
 
@@ -1418,5 +1376,17 @@ type TPAttributeProfile struct {
 	ActivationInterval *TPActivationInterval // Time when this limit becomes active and expires
 	Contexts           []string              // bind this TPAttribute to multiple context
 	Attributes         []*TPAttribute
+	Blocker            bool
+	Weight             float64
+}
+
+type TPChargerProfile struct {
+	TPid               string
+	Tenant             string
+	ID                 string
+	FilterIDs          []string
+	ActivationInterval *TPActivationInterval // Time when this limit becomes active and expires
+	RunID              string
+	AttributeIDs       []string
 	Weight             float64
 }

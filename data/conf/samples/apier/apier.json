@@ -15,8 +15,6 @@
 	"reverse_destinations": {"limit": 10000, "ttl":"0s", "precache": true},
 	"rating_plans": {"limit": 10000, "ttl":"0s","precache": true},
 	"rating_profiles": {"limit": 10000, "ttl":"0s", "precache": true},
-	"lcr_rules": {"limit": 10000, "ttl":"0s", "precache": true},
-	"cdr_stats": {"limit": 10000, "ttl":"0s", "precache": true},
 	"actions": {"limit": 10000, "ttl":"0s", "precache": true},
 	"action_plans": {"limit": 10000, "ttl":"0s", "precache": true},
 	"account_action_plans": {"limit": 10000, "ttl":"0s", "precache": true},
@@ -65,6 +63,29 @@
 	],
 },
 
+"attributes": {								// Attribute service
+	"enabled": true,						// starts Alias service: <true|false>.
+},
+
+
+"resources": {
+	"enabled": true,
+},
+
+
+"stats": {
+	"enabled": true,
+},
+
+"thresholds": {
+	"enabled": true,
+},
+
+
+"suppliers": {
+	"enabled": true,
+},
+
 "aliases": {
 	"enabled": true,						// start the CDR Server service:  <true|false>
 },
@@ -75,9 +96,5 @@
 	}
 },
 
-"cdrstats": {
-	"enabled": true,						// starts the cdrstats service: <true|false>
-	"save_interval": "0s",					// interval to save changed stats into dataDb storage
-},
 
 }

@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func TestASRGetStringValue(t *testing.T) {
 	if strVal := asr.GetStringValue(""); strVal != "33.33333%" {
 		t.Errorf("wrong asr value: %s", strVal)
 	}
-	asr.RemEvent(ev3.TenantID())
+	asr.RemEvent(ev3.ID)
 	if strVal := asr.GetStringValue(""); strVal != "50%" {
 		t.Errorf("wrong asr value: %s", strVal)
 	}
@@ -58,16 +59,16 @@ func TestASRGetStringValue(t *testing.T) {
 			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}}
 	asr.AddEvent(ev4)
 	asr.AddEvent(ev5)
-	asr.RemEvent(ev.TenantID())
+	asr.RemEvent(ev.ID)
 	if strVal := asr.GetStringValue(""); strVal != "66.66667%" {
 		t.Errorf("wrong asr value: %s", strVal)
 	}
-	asr.RemEvent(ev2.TenantID())
+	asr.RemEvent(ev2.ID)
 	if strVal := asr.GetStringValue(""); strVal != "100%" {
 		t.Errorf("wrong asr value: %s", strVal)
 	}
-	asr.RemEvent(ev4.TenantID())
-	asr.RemEvent(ev5.TenantID())
+	asr.RemEvent(ev4.ID)
+	asr.RemEvent(ev5.ID)
 	if strVal := asr.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong asr value: %s", strVal)
 	}
@@ -89,7 +90,7 @@ func TestASRGetValue(t *testing.T) {
 	if v := asr.GetValue(); v != 33.33333 {
 		t.Errorf("wrong asr value: %f", v)
 	}
-	asr.RemEvent(ev3.TenantID())
+	asr.RemEvent(ev3.ID)
 	if v := asr.GetValue(); v != 50.0 {
 		t.Errorf("wrong asr value: %f", v)
 	}
@@ -101,19 +102,19 @@ func TestASRGetValue(t *testing.T) {
 			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}}
 	asr.AddEvent(ev4)
 	asr.AddEvent(ev5)
-	asr.RemEvent(ev.TenantID())
+	asr.RemEvent(ev.ID)
 	if v := asr.GetValue(); v != 66.666670 {
 		t.Errorf("wrong asr value: %f", v)
 	}
-	asr.RemEvent(ev2.TenantID())
+	asr.RemEvent(ev2.ID)
 	if v := asr.GetValue(); v != 100.0 {
 		t.Errorf("wrong asr value: %f", v)
 	}
-	asr.RemEvent(ev4.TenantID())
+	asr.RemEvent(ev4.ID)
 	if v := asr.GetValue(); v != -1.0 {
 		t.Errorf("wrong asr value: %f", v)
 	}
-	asr.RemEvent(ev5.TenantID())
+	asr.RemEvent(ev5.ID)
 	if v := asr.GetValue(); v != -1.0 {
 		t.Errorf("wrong asr value: %f", v)
 	}
@@ -143,7 +144,7 @@ func TestACDGetStringValue(t *testing.T) {
 	if strVal := acd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong acd value: %s", strVal)
 	}
-	acd.RemEvent(ev.TenantID())
+	acd.RemEvent(ev.ID)
 	if strVal := acd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong acd value: %s", strVal)
 	}
@@ -167,13 +168,13 @@ func TestACDGetStringValue(t *testing.T) {
 	if strVal := acd.GetStringValue(""); strVal != "1m15s" {
 		t.Errorf("wrong acd value: %s", strVal)
 	}
-	acd.RemEvent(ev2.TenantID())
+	acd.RemEvent(ev2.ID)
 	if strVal := acd.GetStringValue(""); strVal != "1m15s" {
 		t.Errorf("wrong acd value: %s", strVal)
 	}
-	acd.RemEvent(ev5.TenantID())
-	acd.RemEvent(ev4.TenantID())
-	acd.RemEvent(ev5.TenantID())
+	acd.RemEvent(ev5.ID)
+	acd.RemEvent(ev4.ID)
+	acd.RemEvent(ev5.ID)
 	if strVal := acd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong acd value: %s", strVal)
 	}
@@ -214,19 +215,19 @@ func TestACDGetFloat64Value(t *testing.T) {
 	if strVal := acd.GetFloat64Value(); strVal != 53.333333333 {
 		t.Errorf("wrong acd value: %v", strVal)
 	}
-	acd.RemEvent(ev2.TenantID())
+	acd.RemEvent(ev2.ID)
 	if strVal := acd.GetFloat64Value(); strVal != 53.333333333 {
 		t.Errorf("wrong acd value: %v", strVal)
 	}
-	acd.RemEvent(ev4.TenantID())
+	acd.RemEvent(ev4.ID)
 	if strVal := acd.GetFloat64Value(); strVal != 50.0 {
 		t.Errorf("wrong acd value: %v", strVal)
 	}
-	acd.RemEvent(ev.TenantID())
+	acd.RemEvent(ev.ID)
 	if strVal := acd.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong acd value: %v", strVal)
 	}
-	acd.RemEvent(ev5.TenantID())
+	acd.RemEvent(ev5.ID)
 	if strVal := acd.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong acd value: %v", strVal)
 	}
@@ -252,11 +253,11 @@ func TestACDGetValue(t *testing.T) {
 	if v := acd.GetValue(); v != time.Duration(9*time.Second) {
 		t.Errorf("wrong acd value: %+v", v)
 	}
-	acd.RemEvent(ev.TenantID())
+	acd.RemEvent(ev.ID)
 	if v := acd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong acd value: %+v", v)
 	}
-	acd.RemEvent(ev2.TenantID())
+	acd.RemEvent(ev2.ID)
 	if v := acd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong acd value: %+v", v)
 	}
@@ -277,12 +278,12 @@ func TestACDGetValue(t *testing.T) {
 	if v := acd.GetValue(); v != time.Duration(2*time.Minute+45*time.Second) {
 		t.Errorf("wrong acd value: %+v", v)
 	}
-	acd.RemEvent(ev5.TenantID())
-	acd.RemEvent(ev4.TenantID())
+	acd.RemEvent(ev5.ID)
+	acd.RemEvent(ev4.ID)
 	if v := acd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong acd value: %+v", v)
 	}
-	acd.RemEvent(ev3.TenantID())
+	acd.RemEvent(ev3.ID)
 	if v := acd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong acd value: %+v", v)
 	}
@@ -313,11 +314,11 @@ func TestTCDGetStringValue(t *testing.T) {
 	if strVal := tcd.GetStringValue(""); strVal != "20s" {
 		t.Errorf("wrong tcd value: %s", strVal)
 	}
-	tcd.RemEvent(ev2.TenantID())
+	tcd.RemEvent(ev2.ID)
 	if strVal := tcd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong tcd value: %s", strVal)
 	}
-	tcd.RemEvent(ev.TenantID())
+	tcd.RemEvent(ev.ID)
 	if strVal := tcd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong tcd value: %s", strVal)
 	}
@@ -338,12 +339,12 @@ func TestTCDGetStringValue(t *testing.T) {
 	if strVal := tcd.GetStringValue(""); strVal != "2m30s" {
 		t.Errorf("wrong tcd value: %s", strVal)
 	}
-	tcd.RemEvent(ev4.TenantID())
+	tcd.RemEvent(ev4.ID)
 	if strVal := tcd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong tcd value: %s", strVal)
 	}
-	tcd.RemEvent(ev5.TenantID())
-	tcd.RemEvent(ev3.TenantID())
+	tcd.RemEvent(ev5.ID)
+	tcd.RemEvent(ev3.ID)
 	if strVal := tcd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong tcd value: %s", strVal)
 	}
@@ -384,19 +385,19 @@ func TestTCDGetFloat64Value(t *testing.T) {
 	if strVal := tcd.GetFloat64Value(); strVal != 160.0 {
 		t.Errorf("wrong tcd value: %f", strVal)
 	}
-	tcd.RemEvent(ev2.TenantID())
+	tcd.RemEvent(ev2.ID)
 	if strVal := tcd.GetFloat64Value(); strVal != 160.0 {
 		t.Errorf("wrong tcd value: %f", strVal)
 	}
-	tcd.RemEvent(ev4.TenantID())
+	tcd.RemEvent(ev4.ID)
 	if strVal := tcd.GetFloat64Value(); strVal != 100.0 {
 		t.Errorf("wrong tcd value: %f", strVal)
 	}
-	tcd.RemEvent(ev.TenantID())
+	tcd.RemEvent(ev.ID)
 	if strVal := tcd.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong tcd value: %f", strVal)
 	}
-	tcd.RemEvent(ev5.TenantID())
+	tcd.RemEvent(ev5.ID)
 	if strVal := tcd.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong tcd value: %f", strVal)
 	}
@@ -422,11 +423,11 @@ func TestTCDGetValue(t *testing.T) {
 	if v := tcd.GetValue(); v != time.Duration(15*time.Second) {
 		t.Errorf("wrong tcd value: %+v", v)
 	}
-	tcd.RemEvent(ev.TenantID())
+	tcd.RemEvent(ev.ID)
 	if v := tcd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong tcd value: %+v", v)
 	}
-	tcd.RemEvent(ev2.TenantID())
+	tcd.RemEvent(ev2.ID)
 	if v := tcd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong tcd value: %+v", v)
 	}
@@ -447,12 +448,12 @@ func TestTCDGetValue(t *testing.T) {
 	if v := tcd.GetValue(); v != time.Duration(2*time.Minute+30*time.Second) {
 		t.Errorf("wrong tcd value: %+v", v)
 	}
-	tcd.RemEvent(ev5.TenantID())
-	tcd.RemEvent(ev4.TenantID())
+	tcd.RemEvent(ev5.ID)
+	tcd.RemEvent(ev4.ID)
 	if v := tcd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong tcd value: %+v", v)
 	}
-	tcd.RemEvent(ev3.TenantID())
+	tcd.RemEvent(ev3.ID)
 	if v := tcd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong tcd value: %+v", v)
 	}
@@ -481,7 +482,7 @@ func TestACCGetStringValue(t *testing.T) {
 	if strVal := acc.GetStringValue(""); strVal != "12.3" {
 		t.Errorf("wrong acc value: %s", strVal)
 	}
-	acc.RemEvent(ev3.TenantID())
+	acc.RemEvent(ev3.ID)
 	if strVal := acc.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong acc value: %s", strVal)
 	}
@@ -495,16 +496,16 @@ func TestACCGetStringValue(t *testing.T) {
 			"Cost":       1.2}}
 	acc.AddEvent(ev4)
 	acc.AddEvent(ev5)
-	acc.RemEvent(ev.TenantID())
+	acc.RemEvent(ev.ID)
 	if strVal := acc.GetStringValue(""); strVal != "3.4" {
 		t.Errorf("wrong acc value: %s", strVal)
 	}
-	acc.RemEvent(ev2.TenantID())
+	acc.RemEvent(ev2.ID)
 	if strVal := acc.GetStringValue(""); strVal != "3.4" {
 		t.Errorf("wrong acc value: %s", strVal)
 	}
-	acc.RemEvent(ev4.TenantID())
-	acc.RemEvent(ev5.TenantID())
+	acc.RemEvent(ev4.ID)
+	acc.RemEvent(ev5.ID)
 	if strVal := acc.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong acc value: %s", strVal)
 	}
@@ -530,7 +531,7 @@ func TestACCGetValue(t *testing.T) {
 	if strVal := acc.GetValue(); strVal != -1.0 {
 		t.Errorf("wrong acc value: %v", strVal)
 	}
-	acc.RemEvent(ev3.TenantID())
+	acc.RemEvent(ev3.ID)
 	if strVal := acc.GetValue(); strVal != -1.0 {
 		t.Errorf("wrong acc value: %v", strVal)
 	}
@@ -544,16 +545,16 @@ func TestACCGetValue(t *testing.T) {
 			"Cost":       "1.2"}}
 	acc.AddEvent(ev4)
 	acc.AddEvent(ev5)
-	acc.RemEvent(ev.TenantID())
+	acc.RemEvent(ev.ID)
 	if strVal := acc.GetValue(); strVal != 3.4 {
 		t.Errorf("wrong acc value: %v", strVal)
 	}
-	acc.RemEvent(ev2.TenantID())
+	acc.RemEvent(ev2.ID)
 	if strVal := acc.GetValue(); strVal != 3.4 {
 		t.Errorf("wrong acc value: %v", strVal)
 	}
-	acc.RemEvent(ev4.TenantID())
-	acc.RemEvent(ev5.TenantID())
+	acc.RemEvent(ev4.ID)
+	acc.RemEvent(ev5.ID)
 	if strVal := acc.GetValue(); strVal != -1.0 {
 		t.Errorf("wrong acc value: %v", strVal)
 	}
@@ -582,7 +583,7 @@ func TestTCCGetStringValue(t *testing.T) {
 	if strVal := tcc.GetStringValue(""); strVal != "18" {
 		t.Errorf("wrong tcc value: %s", strVal)
 	}
-	tcc.RemEvent(ev3.TenantID())
+	tcc.RemEvent(ev3.ID)
 	if strVal := tcc.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong tcc value: %s", strVal)
 	}
@@ -596,16 +597,16 @@ func TestTCCGetStringValue(t *testing.T) {
 			"Cost":       1.2}}
 	tcc.AddEvent(ev4)
 	tcc.AddEvent(ev5)
-	tcc.RemEvent(ev.TenantID())
+	tcc.RemEvent(ev.ID)
 	if strVal := tcc.GetStringValue(""); strVal != "6.8" {
 		t.Errorf("wrong tcc value: %s", strVal)
 	}
-	tcc.RemEvent(ev2.TenantID())
+	tcc.RemEvent(ev2.ID)
 	if strVal := tcc.GetStringValue(""); strVal != "6.8" {
 		t.Errorf("wrong tcc value: %s", strVal)
 	}
-	tcc.RemEvent(ev4.TenantID())
-	tcc.RemEvent(ev5.TenantID())
+	tcc.RemEvent(ev4.ID)
+	tcc.RemEvent(ev5.ID)
 	if strVal := tcc.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong tcc value: %s", strVal)
 	}
@@ -634,7 +635,7 @@ func TestTCCGetValue(t *testing.T) {
 	if strVal := tcc.GetValue(); strVal != 13.5 {
 		t.Errorf("wrong tcc value: %v", strVal)
 	}
-	tcc.RemEvent(ev3.TenantID())
+	tcc.RemEvent(ev3.ID)
 	if strVal := tcc.GetValue(); strVal != -1.0 {
 		t.Errorf("wrong tcc value: %v", strVal)
 	}
@@ -648,16 +649,16 @@ func TestTCCGetValue(t *testing.T) {
 			"Cost":       "1.2"}}
 	tcc.AddEvent(ev4)
 	tcc.AddEvent(ev5)
-	tcc.RemEvent(ev.TenantID())
+	tcc.RemEvent(ev.ID)
 	if strVal := tcc.GetValue(); strVal != 6.8 {
 		t.Errorf("wrong tcc value: %v", strVal)
 	}
-	tcc.RemEvent(ev2.TenantID())
+	tcc.RemEvent(ev2.ID)
 	if strVal := tcc.GetValue(); strVal != 6.8 {
 		t.Errorf("wrong tcc value: %v", strVal)
 	}
-	tcc.RemEvent(ev4.TenantID())
-	tcc.RemEvent(ev5.TenantID())
+	tcc.RemEvent(ev4.ID)
+	tcc.RemEvent(ev5.ID)
 	if strVal := tcc.GetValue(); strVal != -1.0 {
 		t.Errorf("wrong tcc value: %v", strVal)
 	}
@@ -685,11 +686,11 @@ func TestPDDGetStringValue(t *testing.T) {
 	if strVal := pdd.GetStringValue(""); strVal != "1.666666666s" {
 		t.Errorf("wrong pdd value: %s", strVal)
 	}
-	pdd.RemEvent(ev3.TenantID())
+	pdd.RemEvent(ev3.ID)
 	if strVal := pdd.GetStringValue(""); strVal != "2.5s" {
 		t.Errorf("wrong pdd value: %s", strVal)
 	}
-	pdd.RemEvent(ev.TenantID())
+	pdd.RemEvent(ev.ID)
 	if strVal := pdd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong pdd value: %s", strVal)
 	}
@@ -713,13 +714,13 @@ func TestPDDGetStringValue(t *testing.T) {
 	if strVal := pdd.GetStringValue(""); strVal != "3.333333333s" {
 		t.Errorf("wrong pdd value: %s", strVal)
 	}
-	pdd.RemEvent(ev2.TenantID())
+	pdd.RemEvent(ev2.ID)
 	if strVal := pdd.GetStringValue(""); strVal != "5s" {
 		t.Errorf("wrong pdd value: %s", strVal)
 	}
-	pdd.RemEvent(ev5.TenantID())
-	pdd.RemEvent(ev4.TenantID())
-	pdd.RemEvent(ev5.TenantID())
+	pdd.RemEvent(ev5.ID)
+	pdd.RemEvent(ev4.ID)
+	pdd.RemEvent(ev5.ID)
 	if strVal := pdd.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong pdd value: %s", strVal)
 	}
@@ -762,19 +763,19 @@ func TestPDDGetFloat64Value(t *testing.T) {
 	if strVal := pdd.GetFloat64Value(); strVal != 3.75 {
 		t.Errorf("wrong pdd value: %v", strVal)
 	}
-	pdd.RemEvent(ev2.TenantID())
+	pdd.RemEvent(ev2.ID)
 	if strVal := pdd.GetFloat64Value(); strVal != 5 {
 		t.Errorf("wrong pdd value: %v", strVal)
 	}
-	pdd.RemEvent(ev4.TenantID())
+	pdd.RemEvent(ev4.ID)
 	if strVal := pdd.GetFloat64Value(); strVal != 2.5 {
 		t.Errorf("wrong pdd value: %v", strVal)
 	}
-	pdd.RemEvent(ev.TenantID())
+	pdd.RemEvent(ev.ID)
 	if strVal := pdd.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong pdd value: %v", strVal)
 	}
-	pdd.RemEvent(ev5.TenantID())
+	pdd.RemEvent(ev5.ID)
 	if strVal := pdd.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong pdd value: %v", strVal)
 	}
@@ -802,11 +803,11 @@ func TestPDDGetValue(t *testing.T) {
 	if v := pdd.GetValue(); v != time.Duration(6333333333*time.Nanosecond) {
 		t.Errorf("wrong pdd value: %+v", v)
 	}
-	pdd.RemEvent(ev.TenantID())
+	pdd.RemEvent(ev.ID)
 	if v := pdd.GetValue(); v != time.Duration(5*time.Second) {
 		t.Errorf("wrong pdd value: %+v", v)
 	}
-	pdd.RemEvent(ev2.TenantID())
+	pdd.RemEvent(ev2.ID)
 	if v := pdd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong pdd value: %+v", v)
 	}
@@ -828,12 +829,12 @@ func TestPDDGetValue(t *testing.T) {
 	if v := pdd.GetValue(); v != time.Duration(2666666666*time.Nanosecond) {
 		t.Errorf("wrong pdd value: %+v", v)
 	}
-	pdd.RemEvent(ev5.TenantID())
-	pdd.RemEvent(ev4.TenantID())
+	pdd.RemEvent(ev5.ID)
+	pdd.RemEvent(ev4.ID)
 	if v := pdd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong pdd value: %+v", v)
 	}
-	pdd.RemEvent(ev3.TenantID())
+	pdd.RemEvent(ev3.ID)
 	if v := pdd.GetValue(); v != time.Duration((-1)*time.Nanosecond) {
 		t.Errorf("wrong pdd value: %+v", v)
 	}
@@ -867,15 +868,15 @@ func TestDDCGetStringValue(t *testing.T) {
 	if strVal := ddc.GetStringValue(""); strVal != "2" {
 		t.Errorf("wrong ddc value: %s", strVal)
 	}
-	ddc.RemEvent(ev.TenantID())
+	ddc.RemEvent(ev.ID)
 	if strVal := ddc.GetStringValue(""); strVal != "2" {
 		t.Errorf("wrong ddc value: %s", strVal)
 	}
-	ddc.RemEvent(ev2.TenantID())
+	ddc.RemEvent(ev2.ID)
 	if strVal := ddc.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong ddc value: %s", strVal)
 	}
-	ddc.RemEvent(ev3.TenantID())
+	ddc.RemEvent(ev3.ID)
 	if strVal := ddc.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong ddc value: %s", strVal)
 	}
@@ -921,19 +922,19 @@ func TestDDCGetFloat64Value(t *testing.T) {
 	if strVal := ddc.GetFloat64Value(); strVal != 3 {
 		t.Errorf("wrong ddc value: %v", strVal)
 	}
-	ddc.RemEvent(ev2.TenantID())
+	ddc.RemEvent(ev2.ID)
 	if strVal := ddc.GetFloat64Value(); strVal != 3 {
 		t.Errorf("wrong pdd value: %v", strVal)
 	}
-	ddc.RemEvent(ev4.TenantID())
+	ddc.RemEvent(ev4.ID)
 	if strVal := ddc.GetFloat64Value(); strVal != 2 {
 		t.Errorf("wrong ddc value: %v", strVal)
 	}
-	ddc.RemEvent(ev.TenantID())
+	ddc.RemEvent(ev.ID)
 	if strVal := ddc.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong ddc value: %v", strVal)
 	}
-	ddc.RemEvent(ev5.TenantID())
+	ddc.RemEvent(ev5.ID)
 	if strVal := ddc.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong ddc value: %v", strVal)
 	}
@@ -982,19 +983,19 @@ func TestStatSumGetFloat64Value(t *testing.T) {
 	if strVal := statSum.GetFloat64Value(); strVal != 60 {
 		t.Errorf("wrong statSum value: %v", strVal)
 	}
-	statSum.RemEvent(ev2.TenantID())
+	statSum.RemEvent(ev2.ID)
 	if strVal := statSum.GetFloat64Value(); strVal != 60 {
 		t.Errorf("wrong statSum value: %v", strVal)
 	}
-	statSum.RemEvent(ev4.TenantID())
+	statSum.RemEvent(ev4.ID)
 	if strVal := statSum.GetFloat64Value(); strVal != 40 {
 		t.Errorf("wrong statSum value: %v", strVal)
 	}
-	statSum.RemEvent(ev.TenantID())
+	statSum.RemEvent(ev.ID)
 	if strVal := statSum.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong statSum value: %v", strVal)
 	}
-	statSum.RemEvent(ev5.TenantID())
+	statSum.RemEvent(ev5.ID)
 	if strVal := statSum.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong statSum value: %v", strVal)
 	}
@@ -1031,15 +1032,15 @@ func TestStatSumGetStringValue(t *testing.T) {
 	if strVal := statSum.GetStringValue(""); strVal != "60" {
 		t.Errorf("wrong statSum value: %s", strVal)
 	}
-	statSum.RemEvent(ev.TenantID())
+	statSum.RemEvent(ev.ID)
 	if strVal := statSum.GetStringValue(""); strVal != "40" {
 		t.Errorf("wrong statSum value: %s", strVal)
 	}
-	statSum.RemEvent(ev2.TenantID())
+	statSum.RemEvent(ev2.ID)
 	if strVal := statSum.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong statSum value: %s", strVal)
 	}
-	statSum.RemEvent(ev3.TenantID())
+	statSum.RemEvent(ev3.ID)
 	if strVal := statSum.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong statSum value: %s", strVal)
 	}
@@ -1088,19 +1089,19 @@ func TestStatAverageGetFloat64Value(t *testing.T) {
 	if strVal := statAvg.GetFloat64Value(); strVal != 23.33333 {
 		t.Errorf("wrong statAvg value: %v", strVal)
 	}
-	statAvg.RemEvent(ev2.TenantID())
+	statAvg.RemEvent(ev2.ID)
 	if strVal := statAvg.GetFloat64Value(); strVal != 23.33333 {
 		t.Errorf("wrong statAvg value: %v", strVal)
 	}
-	statAvg.RemEvent(ev4.TenantID())
+	statAvg.RemEvent(ev4.ID)
 	if strVal := statAvg.GetFloat64Value(); strVal != 20 {
 		t.Errorf("wrong statAvg value: %v", strVal)
 	}
-	statAvg.RemEvent(ev.TenantID())
+	statAvg.RemEvent(ev.ID)
 	if strVal := statAvg.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong statAvg value: %v", strVal)
 	}
-	statAvg.RemEvent(ev5.TenantID())
+	statAvg.RemEvent(ev5.ID)
 	if strVal := statAvg.GetFloat64Value(); strVal != -1.0 {
 		t.Errorf("wrong statAvg value: %v", strVal)
 	}
@@ -1137,16 +1138,206 @@ func TestStatAverageGetStringValue(t *testing.T) {
 	if strVal := statAvg.GetStringValue(""); strVal != "20" {
 		t.Errorf("wrong statAvg value: %s", strVal)
 	}
-	statAvg.RemEvent(ev.TenantID())
+	statAvg.RemEvent(ev.ID)
 	if strVal := statAvg.GetStringValue(""); strVal != "20" {
 		t.Errorf("wrong statAvg value: %s", strVal)
 	}
-	statAvg.RemEvent(ev2.TenantID())
+	statAvg.RemEvent(ev2.ID)
 	if strVal := statAvg.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong statAvg value: %s", strVal)
 	}
-	statAvg.RemEvent(ev3.TenantID())
+	statAvg.RemEvent(ev3.ID)
 	if strVal := statAvg.GetStringValue(""); strVal != utils.NOT_AVAILABLE {
 		t.Errorf("wrong statAvg value: %s", strVal)
+	}
+}
+
+var jMarshaler JSONMarshaler
+
+func TestASRMarshal(t *testing.T) {
+	asr, _ := NewASR(2, "")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}}
+	asr.AddEvent(ev)
+	var nasr StatASR
+	expected := []byte(`{"Answered":1,"Count":1,"Events":{"EVENT_1":true},"MinItems":2}`)
+	if b, err := asr.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := nasr.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(asr, nasr) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(asr), utils.ToJSON(nasr))
+	}
+}
+
+func TestACDMarshal(t *testing.T) {
+	acd, _ := NewACD(2, "")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Usage":      time.Duration(10 * time.Second)}}
+	acd.AddEvent(ev)
+	var nacd StatACD
+	expected := []byte(`{"Sum":10000000000,"Count":1,"Events":{"EVENT_1":10000000000},"MinItems":2}`)
+	if b, err := acd.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := nacd.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(acd, nacd) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(acd), utils.ToJSON(nacd))
+	}
+}
+
+func TestTCDMarshal(t *testing.T) {
+	tcd, _ := NewTCD(2, "")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Usage":      time.Duration(10 * time.Second)}}
+	tcd.AddEvent(ev)
+	var ntcd StatTCD
+	expected := []byte(`{"Sum":10000000000,"Count":1,"Events":{"EVENT_1":10000000000},"MinItems":2}`)
+	if b, err := tcd.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := ntcd.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(tcd, ntcd) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(tcd), utils.ToJSON(ntcd))
+	}
+}
+
+func TestACCMarshal(t *testing.T) {
+	acc, _ := NewACC(2, "")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Cost":       "12.3"}}
+	acc.AddEvent(ev)
+	var nacc StatACC
+	expected := []byte(`{"Sum":12.3,"Count":1,"Events":{"EVENT_1":12.3},"MinItems":2}`)
+	if b, err := acc.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := nacc.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(acc, nacc) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(acc), utils.ToJSON(nacc))
+	}
+}
+
+func TestTCCMarshal(t *testing.T) {
+	tcc, _ := NewTCC(2, "")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Cost":       "12.3"}}
+	tcc.AddEvent(ev)
+	var ntcc StatTCC
+	expected := []byte(`{"Sum":12.3,"Count":1,"Events":{"EVENT_1":12.3},"MinItems":2}`)
+	if b, err := tcc.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := ntcc.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(tcc, ntcc) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(tcc), utils.ToJSON(ntcc))
+	}
+}
+
+func TestPDDMarshal(t *testing.T) {
+	pdd, _ := NewPDD(2, "")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"AnswerTime": time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Usage":      time.Duration(10 * time.Second),
+			utils.PDD:    time.Duration(5 * time.Second)}}
+	pdd.AddEvent(ev)
+	var ntdd StatPDD
+	expected := []byte(`{"Sum":5000000000,"Count":1,"Events":{"EVENT_1":5000000000},"MinItems":2}`)
+	if b, err := pdd.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := ntdd.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(pdd, ntdd) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(pdd), utils.ToJSON(ntdd))
+	}
+}
+
+func TestDCCMarshal(t *testing.T) {
+	ddc, _ := NewDCC(2, "")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"AnswerTime":      time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Usage":           time.Duration(10 * time.Second),
+			utils.PDD:         time.Duration(5 * time.Second),
+			utils.Destination: "1002"}}
+	ddc.AddEvent(ev)
+	var nddc StatDDC
+	expected := []byte(`{"Destinations":{"1002":{"EVENT_1":true}},"Events":{"EVENT_1":"1002"},"MinItems":2}`)
+	if b, err := ddc.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := nddc.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(ddc, nddc) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(ddc), utils.ToJSON(nddc))
+	}
+}
+
+func TestStatSumMarshal(t *testing.T) {
+	statSum, _ := NewStatSum(2, "Cost")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"Cost":            "20",
+			"AnswerTime":      time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Usage":           time.Duration(10 * time.Second),
+			utils.PDD:         time.Duration(5 * time.Second),
+			utils.Destination: "1002"}}
+	statSum.AddEvent(ev)
+	var nstatSum StatSum
+	expected := []byte(`{"Sum":20,"Events":{"EVENT_1":20},"MinItems":2,"FieldName":"Cost"}`)
+	if b, err := statSum.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := nstatSum.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(statSum, nstatSum) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(statSum), utils.ToJSON(nstatSum))
+	}
+}
+
+func TestStatAverageMarshal(t *testing.T) {
+	statAvg, _ := NewStatAverage(2, "Cost")
+	ev := &utils.CGREvent{Tenant: "cgrates.org", ID: "EVENT_1",
+		Event: map[string]interface{}{
+			"Cost":            "20",
+			"AnswerTime":      time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			"Usage":           time.Duration(10 * time.Second),
+			utils.PDD:         time.Duration(5 * time.Second),
+			utils.Destination: "1002"}}
+	statAvg.AddEvent(ev)
+	var nstatAvg StatAverage
+	expected := []byte(`{"Sum":20,"Count":1,"Events":{"EVENT_1":20},"MinItems":2,"FieldName":"Cost"}`)
+	if b, err := statAvg.Marshal(&jMarshaler); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, b) {
+		t.Errorf("Expected: %s , recived: %s", string(expected), string(b))
+	} else if err := nstatAvg.LoadMarshaled(&jMarshaler, b); err != nil {
+		t.Error(err)
+	} else if reflect.DeepEqual(statAvg, nstatAvg) {
+		t.Errorf("Expected: %s , recived: %s", utils.ToJSON(statAvg), utils.ToJSON(nstatAvg))
 	}
 }

@@ -116,40 +116,6 @@ func (rpf *TpRatingProfile) GetRatingProfileId() string {
 	return utils.ConcatenatedKey(rpf.Loadid, rpf.Direction, rpf.Tenant, rpf.Category, rpf.Subject)
 }
 
-type TpLcrRule struct {
-	Id             int64
-	Tpid           string
-	Direction      string  `index:"0" re:""`
-	Tenant         string  `index:"1" re:""`
-	Category       string  `index:"2" re:""`
-	Account        string  `index:"3" re:""`
-	Subject        string  `index:"4" re:""`
-	DestinationTag string  `index:"5" re:""`
-	RpCategory     string  `index:"6" re:""`
-	Strategy       string  `index:"7" re:""`
-	StrategyParams string  `index:"8" re:""`
-	ActivationTime string  `index:"9" re:""`
-	Weight         float64 `index:"10" re:""`
-	CreatedAt      time.Time
-}
-
-func (lcr *TpLcrRule) SetLcrRuleId(id string) error {
-	ids := strings.Split(id, utils.CONCATENATED_KEY_SEP)
-	if len(ids) != 5 {
-		return fmt.Errorf("wrong LcrRule Id: %s", id)
-	}
-	lcr.Direction = ids[0]
-	lcr.Tenant = ids[1]
-	lcr.Category = ids[2]
-	lcr.Account = ids[3]
-	lcr.Subject = ids[4]
-	return nil
-}
-
-func (lcr *TpLcrRule) GetLcrRuleId() string {
-	return utils.LCRKey(lcr.Direction, lcr.Tenant, lcr.Category, lcr.Account, lcr.Subject)
-}
-
 type TpAction struct {
 	Id              int64
 	Tpid            string
@@ -299,41 +265,6 @@ func (tpdc *TpDerivedCharger) GetDerivedChargersId() string {
 	return utils.ConcatenatedKey(tpdc.Loadid, tpdc.Direction, tpdc.Tenant, tpdc.Category, tpdc.Account, tpdc.Subject)
 }
 
-type TpCdrstat struct {
-	Id               int64
-	Tpid             string
-	Tag              string `index:"0" re:""`
-	QueueLength      int    `index:"1" re:""`
-	TimeWindow       string `index:"2" re:""`
-	SaveInterval     string `index:"3" re:""`
-	Metrics          string `index:"4" re:""`
-	SetupInterval    string `index:"5" re:""`
-	Tors             string `index:"6" re:""`
-	CdrHosts         string `index:"7" re:""`
-	CdrSources       string `index:"8" re:""`
-	ReqTypes         string `index:"9" re:""`
-	Directions       string `index:"10" re:""`
-	Tenants          string `index:"11" re:""`
-	Categories       string `index:"12" re:""`
-	Accounts         string `index:"13" re:""`
-	Subjects         string `index:"14" re:""`
-	DestinationIds   string `index:"15" re:""`
-	PddInterval      string `index:"16" re:""`
-	UsageInterval    string `index:"17" re:""`
-	Suppliers        string `index:"18" re:""`
-	DisconnectCauses string `index:"19" re:""`
-	MediationRunids  string `index:"20" re:""`
-	RatedAccounts    string `index:"21" re:""`
-	RatedSubjects    string `index:"22" re:""`
-	CostInterval     string `index:"23" re:""`
-	ActionTriggers   string `index:"24" re:""`
-	CreatedAt        time.Time
-}
-
-func (t TpCdrstat) TableName() string {
-	return utils.TBLTPCdrStats
-}
-
 type TpUser struct {
 	Id             int64
 	Tpid           string
@@ -411,7 +342,7 @@ type TpResource struct {
 	Blocker            bool    `index:"7" re:""`
 	Stored             bool    `index:"8" re:""`
 	Weight             float64 `index:"9" re:"\d+\.?\d*"`
-	Thresholds         string  `index:"10" re:""`
+	ThresholdIDs       string  `index:"10" re:""`
 	CreatedAt          time.Time
 }
 
@@ -430,7 +361,7 @@ type TpStats struct {
 	Stored             bool    `index:"9" re:""`
 	Weight             float64 `index:"10" re:"\d+\.?\d*"`
 	MinItems           int     `index:"11" re:""`
-	Thresholds         string  `index:"12" re:""`
+	ThresholdIDs       string  `index:"12" re:""`
 	CreatedAt          time.Time
 }
 
@@ -441,7 +372,7 @@ type TpThreshold struct {
 	ID                 string  `index:"1" re:""`
 	FilterIDs          string  `index:"2" re:""`
 	ActivationInterval string  `index:"3" re:""`
-	Recurrent          bool    `index:"4" re:""`
+	MaxHits            int     `index:"4" re:""`
 	MinHits            int     `index:"5" re:""`
 	MinSleep           string  `index:"6" re:""`
 	Blocker            bool    `index:"7" re:""`
@@ -494,7 +425,7 @@ func (t CDRsql) TableName() string {
 	return utils.CDRsTBL
 }
 
-type SMCostSQL struct {
+type SessionsCostsSQL struct {
 	ID          int64
 	Cgrid       string
 	RunID       string
@@ -507,8 +438,8 @@ type SMCostSQL struct {
 	DeletedAt   *time.Time
 }
 
-func (t SMCostSQL) TableName() string {
-	return utils.SMCostsTBL
+func (t SessionsCostsSQL) TableName() string {
+	return utils.SessionsCostsTBL
 }
 
 type TBLVersion struct {
@@ -529,7 +460,7 @@ type TpSupplier struct {
 	FilterIDs             string  `index:"2" re:""`
 	ActivationInterval    string  `index:"3" re:""`
 	Sorting               string  `index:"4" re:""`
-	SortingParams         string  `index:"5" re:""`
+	SortingParameters     string  `index:"5" re:""`
 	SupplierID            string  `index:"6" re:""`
 	SupplierFilterIDs     string  `index:"7" re:""`
 	SupplierAccountIDs    string  `index:"8" re:""`
@@ -537,8 +468,8 @@ type TpSupplier struct {
 	SupplierResourceIDs   string  `index:"10" re:""`
 	SupplierStatIDs       string  `index:"11" re:""`
 	SupplierWeight        float64 `index:"12" re:"\d+\.?\d*"`
-	SupplierParameters    string  `index:"13" re:""`
-	Blocker               bool    `index:"14" re:""`
+	SupplierBlocker       bool    `index:"13" re:""`
+	SupplierParameters    string  `index:"14" re:""`
 	Weight                float64 `index:"15" re:"\d+\.?\d*"`
 	CreatedAt             time.Time
 }
@@ -555,6 +486,20 @@ type TPAttribute struct {
 	Initial            string  `index:"6" re:""`
 	Substitute         string  `index:"7" re:""`
 	Append             bool    `index:"8" re:""`
-	Weight             float64 `index:"9" re:"\d+\.?\d*"`
+	Blocker            bool    `index:"9" re:""`
+	Weight             float64 `index:"10" re:"\d+\.?\d*"`
+	CreatedAt          time.Time
+}
+
+type TPCharger struct {
+	PK                 uint `gorm:"primary_key"`
+	Tpid               string
+	Tenant             string  `index:"0" re:""`
+	ID                 string  `index:"1" re:""`
+	FilterIDs          string  `index:"2" re:""`
+	ActivationInterval string  `index:"3" re:""`
+	RunID              string  `index:"4" re:""`
+	AttributeIDs       string  `index:"5" re:""`
+	Weight             float64 `index:"6" re:"\d+\.?\d*"`
 	CreatedAt          time.Time
 }

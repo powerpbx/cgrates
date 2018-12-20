@@ -239,57 +239,78 @@ func TestParseTimeDetectLayout(t *testing.T) {
 	} else if parseNowTimeStr.After(start) && parseNowTimeStr.Before(end) {
 		t.Errorf("Unexpected time parsed: %v", parseNowTimeStr)
 	}
-}
 
-func TestParseDateUnix(t *testing.T) {
-	date, err := ParseDate("1375212790")
+	unixTmMilisecStr := "1534176053410"
+	expectedTime = time.Date(2018, 8, 13, 16, 00, 53, 410000000, time.UTC)
+	unixTm, err = ParseTimeDetectLayout(unixTmMilisecStr, "")
+	if err != nil {
+		t.Error(err)
+	} else if !unixTm.Equal(expectedTime) {
+		t.Errorf("Unexpected time parsed: %v, expecting: %v", unixTm, expectedTime)
+	}
+
+	tmStr = "2005-08-26T14:17:34"
+	expectedTime = time.Date(2005, 8, 26, 14, 17, 34, 0, time.UTC)
+	tm, err = ParseTimeDetectLayout(tmStr, "")
+	if err != nil {
+		t.Error(err)
+	} else if !tm.Equal(expectedTime) {
+		t.Errorf("Unexpected time parsed: %v, expecting: %v", tm, expectedTime)
+	}
+
 	expected := time.Date(2013, 7, 30, 19, 33, 10, 0, time.UTC)
+	date, err := ParseTimeDetectLayout("1375212790", "")
 	if err != nil || !date.Equal(expected) {
 		t.Error("error parsing date: ", expected.Sub(date))
 	}
-}
 
-func TestParseDateUnlimited(t *testing.T) {
-	date, err := ParseDate("*unlimited")
+	date, err = ParseTimeDetectLayout("*unlimited", "")
 	if err != nil || !date.IsZero() {
 		t.Error("error parsing unlimited date!: ")
 	}
-}
 
-func TestParseDateEmpty(t *testing.T) {
-	date, err := ParseDate("")
+	date, err = ParseTimeDetectLayout("", "")
 	if err != nil || !date.IsZero() {
 		t.Error("error parsing unlimited date!: ")
 	}
-}
 
-func TestParseDatePlus(t *testing.T) {
-	date, err := ParseDate("+20s")
-	expected := time.Now()
+	date, err = ParseTimeDetectLayout("+20s", "")
+	expected = time.Now()
 	if err != nil || date.Sub(expected).Seconds() > 20 || date.Sub(expected).Seconds() < 19 {
 		t.Error("error parsing date: ", date.Sub(expected).Seconds())
 	}
-}
 
-func TestParseDateMonthly(t *testing.T) {
-	date, err := ParseDate("*monthly")
-	expected := time.Now().AddDate(0, 1, 0)
-	if err != nil || expected.Sub(date).Seconds() > 1 {
-		t.Error("error parsing date: ", expected.Sub(date).Seconds())
+	expected = time.Now().AddDate(0, 1, 0)
+	if date, err := ParseTimeDetectLayout("*monthly", ""); err != nil {
+		t.Error(err)
+	} else if expected.Sub(date).Seconds() > 1 {
+		t.Errorf("received: %+v", date)
 	}
-}
 
-func TestParseDateRFC3339(t *testing.T) {
-	date, err := ParseDate("2013-07-30T19:33:10Z")
-	expected := time.Date(2013, 7, 30, 19, 33, 10, 0, time.UTC)
+	expected = GetEndOfMonth(time.Now())
+	if date, err := ParseTimeDetectLayout("*month_end", ""); err != nil {
+		t.Error(err)
+	} else if !date.Equal(expected) {
+		t.Errorf("received: %+v", date)
+	}
+	expected = GetEndOfMonth(time.Now()).Add(time.Hour).Add(2 * time.Minute)
+	if date, err := ParseTimeDetectLayout("*month_end+1h2m", ""); err != nil {
+		t.Error(err)
+	} else if !date.Equal(expected) {
+		t.Errorf("expecting: %+v, received: %+v", expected, date)
+	}
+
+	date, err = ParseTimeDetectLayout("2013-07-30T19:33:10Z", "")
+	expected = time.Date(2013, 7, 30, 19, 33, 10, 0, time.UTC)
 	if err != nil || !date.Equal(expected) {
 		t.Error("error parsing date: ", expected.Sub(date))
 	}
-	date, err = ParseDate("2016-04-01T02:00:00+02:00")
+	date, err = ParseTimeDetectLayout("2016-04-01T02:00:00+02:00", "")
 	expected = time.Date(2016, 4, 1, 0, 0, 0, 0, time.UTC)
 	if err != nil || !date.Equal(expected) {
 		t.Errorf("Expecting: %v, received: %v", expected, date)
 	}
+
 }
 
 func TestRoundDuration(t *testing.T) {
@@ -579,10 +600,10 @@ func TestEndOfMonth(t *testing.T) {
 
 func TestParseHierarchyPath(t *testing.T) {
 	eHP := HierarchyPath([]string{"Root", "CGRateS"})
-	if hp := ParseHierarchyPath("Root>CGRateS", ""); !reflect.DeepEqual(hp, eHP) {
+	if hp := ParseHierarchyPath("/Root/CGRateS/", ""); !reflect.DeepEqual(hp, eHP) {
 		t.Errorf("Expecting: %+v, received: %+v", eHP, hp)
 	}
-	if hp := ParseHierarchyPath("/Root/CGRateS/", ""); !reflect.DeepEqual(hp, eHP) {
+	if hp := ParseHierarchyPath("Root.CGRateS", ""); !reflect.DeepEqual(hp, eHP) {
 		t.Errorf("Expecting: %+v, received: %+v", eHP, hp)
 	}
 }
@@ -682,15 +703,6 @@ func TestBoolPointer(t *testing.T) {
 	expected := &t1
 	if *expected != *result {
 		t.Error("Expected:", expected, ", received:", result)
-	}
-}
-
-func TestFloat64SlicePointer(t *testing.T) {
-	t1 := []float64{1.2, 12.3, 123.4, 1234.5}
-	expected := &t1
-	result := Float64SlicePointer(t1)
-	if *result == nil {
-		t.Error("Expected:", expected, ", received: nil")
 	}
 }
 
@@ -811,5 +823,54 @@ func TestGZIPGUnZIP(t *testing.T) {
 		t.Error(err)
 	} else if !reflect.DeepEqual(src, dst) {
 		t.Error("not matching initial source")
+	}
+}
+
+func TestFFNNewFallbackFileNameFronString(t *testing.T) {
+	fileName := "cdr|*http_json_cdr|http%3A%2F%2F127.0.0.1%3A12080%2Finvalid_json|1acce2c9-3f2d-4774-8662-c28872dad515.json"
+	eFFN := &FallbackFileName{Module: "cdr",
+		Transport:  MetaHTTPjsonCDR,
+		Address:    "http://127.0.0.1:12080/invalid_json",
+		RequestID:  "1acce2c9-3f2d-4774-8662-c28872dad515",
+		FileSuffix: JSNSuffix}
+	if ffn, err := NewFallbackFileNameFronString(fileName); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eFFN, ffn) {
+		t.Errorf("Expecting: %+v, received: %+v", eFFN, ffn)
+	}
+	fileName = "cdr|*http_post|http%3A%2F%2F127.0.0.1%3A12080%2Finvalid|70c53d6d-dbd7-452e-a5bd-36bab59bb9ff.form"
+	eFFN = &FallbackFileName{Module: "cdr",
+		Transport:  META_HTTP_POST,
+		Address:    "http://127.0.0.1:12080/invalid",
+		RequestID:  "70c53d6d-dbd7-452e-a5bd-36bab59bb9ff",
+		FileSuffix: FormSuffix}
+	if ffn, err := NewFallbackFileNameFronString(fileName); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eFFN, ffn) {
+		t.Errorf("Expecting: %+v, received: %+v", eFFN, ffn)
+	}
+	fileName = "act>*call_url|*http_json|http%3A%2F%2Flocalhost%3A2080%2Flog_warning|f52cf23e-da2f-4675-b36b-e8fcc3869270.json"
+	eFFN = &FallbackFileName{Module: "act>*call_url",
+		Transport:  MetaHTTPjson,
+		Address:    "http://localhost:2080/log_warning",
+		RequestID:  "f52cf23e-da2f-4675-b36b-e8fcc3869270",
+		FileSuffix: JSNSuffix}
+	if ffn, err := NewFallbackFileNameFronString(fileName); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eFFN, ffn) {
+		t.Errorf("Expecting: %+v, received: %+v", eFFN, ffn)
+	}
+}
+
+func TestFFNFallbackFileNameAsString(t *testing.T) {
+	eFn := "cdr|*http_json_cdr|http%3A%2F%2F127.0.0.1%3A12080%2Finvalid_json|1acce2c9-3f2d-4774-8662-c28872dad515.json"
+	ffn := &FallbackFileName{
+		Module:     "cdr",
+		Transport:  MetaHTTPjsonCDR,
+		Address:    "http://127.0.0.1:12080/invalid_json",
+		RequestID:  "1acce2c9-3f2d-4774-8662-c28872dad515",
+		FileSuffix: JSNSuffix}
+	if ffnStr := ffn.AsString(); ffnStr != eFn {
+		t.Errorf("Expecting: <%q>, received: <%q>", eFn, ffnStr)
 	}
 }

@@ -21,13 +21,10 @@ package engine
 import (
 	"errors"
 	"fmt"
-	"log"
-
-	"sort"
-	"strings"
+	"net"
+	"reflect"
 	"time"
 
-	"github.com/cgrates/cgrates/cache"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/guardian"
 	"github.com/cgrates/cgrates/utils"
@@ -43,7 +40,6 @@ const (
 )
 
 func init() {
-	var err error
 	var data DataDB
 	switch DB {
 	case "map":
@@ -52,16 +48,6 @@ func init() {
 			config.SetCgrConfig(cgrCfg)
 		}
 		data, _ = NewMapStorage()
-	case utils.MONGO:
-		data, err = NewMongoStorage("127.0.0.1", "27017", "cgrates_data_test", "", "", utils.DataDB, nil, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
-		if err != nil {
-			log.Fatal(err)
-		}
-	case utils.REDIS:
-		data, _ = NewRedisStorage("127.0.0.1:6379", 12, "", utils.MSGPACK, utils.REDIS_MAX_CONNS, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
-		if err != nil {
-			log.Fatal(err)
-		}
 	}
 	dm = NewDataManager(data)
 }
@@ -72,9 +58,11 @@ var (
 	debitPeriod              = 10 * time.Second
 	globalRoundingDecimals   = 6
 	thresholdS               rpcclient.RpcClientConnection // used by RALs to communicate with ThresholdS
+	statS                    rpcclient.RpcClientConnection
 	pubSubServer             rpcclient.RpcClientConnection
 	userService              rpcclient.RpcClientConnection
 	aliasService             rpcclient.RpcClientConnection
+	schedCdrsConns           rpcclient.RpcClientConnection
 	rpSubjectPrefixMatching  bool
 	lcrSubjectPrefixMatching bool
 )
@@ -86,6 +74,10 @@ func SetDataStorage(dm2 *DataManager) {
 
 func SetThresholdS(thdS rpcclient.RpcClientConnection) {
 	thresholdS = thdS
+}
+
+func SetStatS(stsS rpcclient.RpcClientConnection) {
+	statS = stsS
 }
 
 // Sets the global rounding method and decimal precision for GetCost method
@@ -120,11 +112,64 @@ func SetAliasService(as rpcclient.RpcClientConnection) {
 	aliasService = as
 }
 
+func SetSchedCdrsConns(sc rpcclient.RpcClientConnection) {
+	schedCdrsConns = sc
+	if schedCdrsConns != nil && reflect.ValueOf(schedCdrsConns).IsNil() {
+		schedCdrsConns = nil
+	}
+}
+
 func Publish(event CgrEvent) {
 	if pubSubServer != nil {
 		var s string
 		pubSubServer.Call("PubSubV1.Publish", event, &s)
 	}
+}
+
+// NewCallDescriptorFromCGREvent converts a CGREvent into CallDescriptor
+func NewCallDescriptorFromCGREvent(cgrEv *utils.CGREvent,
+	timezone string) (cd *CallDescriptor, err error) {
+	cd = &CallDescriptor{Direction: utils.OUT, Tenant: cgrEv.Tenant}
+	if _, has := cgrEv.Event[utils.Category]; has {
+		if cd.Category, err = cgrEv.FieldAsString(utils.Category); err != nil {
+			return nil, err
+		}
+	}
+	if cd.Account, err = cgrEv.FieldAsString(utils.Account); err != nil {
+		return
+	}
+	if cd.Subject, err = cgrEv.FieldAsString(utils.Subject); err != nil {
+		if err != utils.ErrNotFound {
+			return
+		}
+		cd.Subject = cd.Account
+	}
+	if cd.Destination, err = cgrEv.FieldAsString(utils.Destination); err != nil {
+		return nil, err
+	}
+	if cd.TimeStart, err = cgrEv.FieldAsTime(utils.SetupTime,
+		timezone); err != nil {
+		return nil, err
+	}
+	if _, has := cgrEv.Event[utils.AnswerTime]; has { // AnswerTime takes precendence for TimeStart
+		if aTime, err := cgrEv.FieldAsTime(utils.AnswerTime,
+			timezone); err != nil {
+			return nil, err
+		} else if !aTime.IsZero() {
+			cd.TimeStart = aTime
+		}
+	}
+	if usage, err := cgrEv.FieldAsDuration(utils.Usage); err != nil {
+		return nil, err
+	} else {
+		cd.TimeEnd = cd.TimeStart.Add(usage)
+	}
+	if _, has := cgrEv.Event[utils.ToR]; has {
+		if cd.TOR, err = cgrEv.FieldAsString(utils.ToR); err != nil {
+			return nil, err
+		}
+	}
+	return
 }
 
 /*
@@ -167,7 +212,7 @@ func (cd *CallDescriptor) AsCGREvent() *utils.CGREvent {
 	for k, v := range cd.ExtraFields {
 		cgrEv.Event[k] = v
 	}
-	cgrEv.Event[utils.TOR] = cd.TOR
+	cgrEv.Event[utils.ToR] = cd.TOR
 	cgrEv.Event[utils.Tenant] = cd.Tenant
 	cgrEv.Event[utils.Category] = cd.Category
 	cgrEv.Event[utils.Account] = cd.Account
@@ -184,7 +229,7 @@ func (cd *CallDescriptor) AsCGREvent() *utils.CGREvent {
 func (cd *CallDescriptor) UpdateFromCGREvent(cgrEv *utils.CGREvent, fields []string) (err error) {
 	for _, fldName := range fields {
 		switch fldName {
-		case utils.TOR:
+		case utils.ToR:
 			if cd.TOR, err = cgrEv.FieldAsString(fldName); err != nil {
 				return
 			}
@@ -209,7 +254,8 @@ func (cd *CallDescriptor) UpdateFromCGREvent(cgrEv *utils.CGREvent, fields []str
 				return
 			}
 		case utils.AnswerTime:
-			if cd.TimeStart, err = cgrEv.FieldAsTime(fldName, config.CgrConfig().DefaultTimezone); err != nil {
+			if cd.TimeStart, err = cgrEv.FieldAsTime(fldName,
+				config.CgrConfig().GeneralCfg().DefaultTimezone); err != nil {
 				return
 			}
 		case utils.Usage:
@@ -867,7 +913,8 @@ func (cd *CallDescriptor) MaxDebit() (cc *CallCost, err error) {
 }
 
 // refundIncrements has no locks
-func (cd *CallDescriptor) refundIncrements() (err error) {
+// returns the updated account referenced by the CallDescriptor
+func (cd *CallDescriptor) refundIncrements() (acnt *Account, err error) {
 	accountsCache := make(map[string]*Account)
 	for _, increment := range cd.Increments {
 		account, found := accountsCache[increment.BalanceInfo.AccountID]
@@ -903,11 +950,12 @@ func (cd *CallDescriptor) refundIncrements() (err error) {
 			account.countUnits(-increment.Cost, utils.MONETARY, cc, balance)
 		}
 	}
+	acnt = accountsCache[utils.ConcatenatedKey(cd.Tenant, cd.Account)]
 	return
 
 }
 
-func (cd *CallDescriptor) RefundIncrements() (err error) {
+func (cd *CallDescriptor) RefundIncrements() (acnt *Account, err error) {
 	// get account list for locking
 	// all must be locked in order to use cache
 	cd.Increments.Decompress()
@@ -921,7 +969,7 @@ func (cd *CallDescriptor) RefundIncrements() (err error) {
 		}
 	}
 	_, err = guardian.Guardian.Guard(func() (iface interface{}, err error) {
-		err = cd.refundIncrements()
+		acnt, err = cd.refundIncrements()
 		return
 	}, 0, accMap.Slice()...)
 	return
@@ -1011,392 +1059,41 @@ func (cd *CallDescriptor) Clone() *CallDescriptor {
 	}
 }
 
-func (cd *CallDescriptor) GetLCRFromStorage() (*LCR, error) {
-	keyVariants := []string{
-		utils.LCRKey(cd.Direction, cd.Tenant, cd.Category, cd.Account, cd.Subject),
-		utils.LCRKey(cd.Direction, cd.Tenant, cd.Category, cd.Account, utils.ANY),
-		utils.LCRKey(cd.Direction, cd.Tenant, cd.Category, utils.ANY, utils.ANY),
-		utils.LCRKey(cd.Direction, cd.Tenant, utils.ANY, utils.ANY, utils.ANY),
-		utils.LCRKey(utils.ANY, utils.ANY, cd.Category, utils.ANY, utils.ANY),
-		utils.LCRKey(utils.ANY, utils.ANY, utils.ANY, utils.ANY, utils.ANY),
-	}
-	if lcrSubjectPrefixMatching {
-		var partialSubjects []string
-		lenSubject := len(cd.Subject)
-		for i := 1; i < lenSubject; i++ {
-			partialSubjects = append(partialSubjects, utils.LCRKey(cd.Direction, cd.Tenant, cd.Category, cd.Account, cd.Subject[:lenSubject-i]))
-		}
-		// insert partialsubjects into keyVariants
-		keyVariants = append(keyVariants[:1], append(partialSubjects, keyVariants[1:]...)...)
-	}
-	for _, key := range keyVariants {
-		if lcr, err := dm.GetLCR(key, false, utils.NonTransactional); err != nil && err != utils.ErrNotFound {
-			return nil, err
-		} else if err == nil && lcr != nil {
-			return lcr, nil
-		}
-	}
-	return nil, utils.ErrNotFound
-}
-
-func (cd *CallDescriptor) GetLCR(stats rpcclient.RpcClientConnection, lcrFltr *LCRFilter, p *utils.Paginator) (*LCRCost, error) {
-	cd.account = nil // make sure it's not cached
-	lcr, err := cd.GetLCRFromStorage()
-	if err != nil {
-		return nil, err
-	}
-	// sort by activation time
-	lcr.Sort()
-	// find if one ore more entries apply to this cd (create lcr timespans)
-	// create timespans and attach lcr entries to them
-	lcrCost := &LCRCost{}
-	for _, lcrActivation := range lcr.Activations {
-		lcrEntry := lcrActivation.GetLCREntryForPrefix(cd.Destination)
-		if lcrActivation.ActivationTime.Before(cd.TimeStart) ||
-			lcrActivation.ActivationTime.Equal(cd.TimeStart) {
-			lcrCost.Entry = lcrEntry
-		} else {
-			// because lcr is sorted the folowing ones will
-			// only activate later than cd.Timestart
-			break
-		}
-	}
-	if lcrCost.Entry == nil {
-		return lcrCost, nil
-	}
-	if lcrCost.Entry.Strategy == LCR_STRATEGY_STATIC {
-		for _, supplier := range lcrCost.Entry.GetParams() {
-			lcrCD := cd.Clone()
-			lcrCD.Account = supplier
-			lcrCD.Subject = supplier
-			lcrCD.Category = lcrCost.Entry.RPCategory
-			fullSupplier := utils.ConcatenatedKey(lcrCD.Direction, lcrCD.Tenant, lcrCD.Category, lcrCD.Subject)
-			var cc *CallCost
-			var err error
-			if cd.account, err = dm.DataDB().GetAccount(lcrCD.GetAccountKey()); err == nil {
-				if cd.account.Disabled {
-					lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-						Supplier: fullSupplier,
-						Error:    fmt.Sprintf("supplier %s is disabled", supplier),
-					})
-					continue
-				}
-				cc, err = lcrCD.debit(cd.account, true, true)
-			} else {
-				cc, err = lcrCD.GetCost()
-			}
-			//log.Printf("CC: %+v", cc.Timespans[0].ratingInfo.RateIntervals[0].Rating.Rates[0])
-			if err != nil || cc == nil {
-				lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-					Supplier: fullSupplier,
-					Error:    err.Error(),
-				})
-			} else {
-				lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-					Supplier: fullSupplier,
-					Cost:     cc.Cost,
-					Duration: cc.GetDuration(),
-				})
-			}
-		}
-	} else {
-		// find rating profiles
-		category := lcrCost.Entry.RPCategory
-		if category == utils.META_DEFAULT {
-			category = lcr.Category
-		}
-		ratingProfileSearchKey := utils.ConcatenatedKey(lcr.Direction, lcr.Tenant, lcrCost.Entry.RPCategory)
-		searchKey := utils.RATING_PROFILE_PREFIX + ratingProfileSearchKey
-		suppliers := cache.GetEntryKeys(searchKey)
-		if len(suppliers) == 0 { // Most probably the data was not cached, do it here, #ToDo: move logic in RAL service
-			suppliers, err = dm.DataDB().GetKeysForPrefix(searchKey)
-			if err != nil {
-				return nil, err
-			}
-			transID := utils.GenUUID()
-			for _, dbKey := range suppliers {
-				if _, err := dm.GetRatingProfile(dbKey[len(utils.RATING_PROFILE_PREFIX):], true, transID); err != nil { // cache the keys here
-					cache.RollbackTransaction(transID)
-					return nil, err
-				}
-			}
-			cache.CommitTransaction(transID)
-		}
-		for _, supplier := range suppliers {
-			split := strings.Split(supplier, ":")
-			supplier = split[len(split)-1]
-			lcrCD := cd.Clone()
-			lcrCD.Category = category
-			lcrCD.Account = supplier
-			lcrCD.Subject = supplier
-			fullSupplier := utils.ConcatenatedKey(lcrCD.Direction, lcrCD.Tenant, lcrCD.Category, lcrCD.Subject)
-			var qosSortParams []string
-			var asrValues sort.Float64Slice
-			var pddValues sort.Float64Slice
-			var acdValues sort.Float64Slice
-			var tcdValues sort.Float64Slice
-			var accValues sort.Float64Slice
-			var tccValues sort.Float64Slice
-			var ddcValues sort.Float64Slice
-			// track if one value is never calculated
-			asrNeverConsidered := true
-			pddNeverConsidered := true
-			acdNeverConsidered := true
-			tcdNeverConsidered := true
-			accNeverConsidered := true
-			tccNeverConsidered := true
-			ddcNeverConsidered := true
-			if utils.IsSliceMember([]string{LCR_STRATEGY_QOS, LCR_STRATEGY_QOS_THRESHOLD, LCR_STRATEGY_LOAD}, lcrCost.Entry.Strategy) {
-				if stats == nil {
-					lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-						Supplier: fullSupplier,
-						Error:    fmt.Sprintf("Cdr stats service not configured"),
-					})
-					continue
-				}
-				rpfKey := utils.ConcatenatedKey(ratingProfileSearchKey, supplier)
-				if rpf, err := RatingProfileSubjectPrefixMatching(rpfKey); err != nil {
-					lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-						Supplier: fullSupplier,
-						Error:    fmt.Sprintf("Rating plan error: %s", err.Error()),
-					})
-					continue
-				} else if rpf != nil {
-					rpf.RatingPlanActivations.Sort()
-					activeRas := rpf.RatingPlanActivations.GetActiveForCall(cd)
-					var cdrCDRStatsQueueIds []string
-					for _, ra := range activeRas {
-						for _, qId := range ra.CdrStatQueueIds {
-							if qId != "" {
-								cdrCDRStatsQueueIds = append(cdrCDRStatsQueueIds, qId)
-							}
-						}
-					}
-
-					statsErr := false
-					var supplierQueues []*CDRStatsQueue
-					for _, qId := range cdrCDRStatsQueueIds {
-						if lcrCost.Entry.Strategy == LCR_STRATEGY_LOAD {
-							for _, qId := range cdrCDRStatsQueueIds {
-								sq := &CDRStatsQueue{}
-								if err := stats.Call("CDRStatsV1.GetQueue", qId, sq); err == nil {
-									if sq.conf.QueueLength == 0 { //only add qeues that don't have fixed length
-										supplierQueues = append(supplierQueues, sq)
-									}
-								}
-							}
-						} else {
-							statValues := make(map[string]float64)
-							if err := stats.Call("CDRStatsV1.GetValues", qId, &statValues); err != nil {
-								lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-									Supplier: fullSupplier,
-									Error:    fmt.Sprintf("Get stats values for queue id %s, error %s", qId, err.Error()),
-								})
-								statsErr = true
-								break
-							}
-							if asr, exists := statValues[ASR]; exists {
-								if asr > STATS_NA {
-									asrValues = append(asrValues, asr)
-								}
-								asrNeverConsidered = false
-							}
-							if pdd, exists := statValues[PDD]; exists {
-								if pdd > STATS_NA {
-									pddValues = append(pddValues, pdd)
-								}
-								pddNeverConsidered = false
-							}
-							if acd, exists := statValues[ACD]; exists {
-								if acd > STATS_NA {
-									acdValues = append(acdValues, acd)
-								}
-								acdNeverConsidered = false
-							}
-							if tcd, exists := statValues[TCD]; exists {
-								if tcd > STATS_NA {
-									tcdValues = append(tcdValues, tcd)
-								}
-								tcdNeverConsidered = false
-							}
-							if acc, exists := statValues[ACC]; exists {
-								if acc > STATS_NA {
-									accValues = append(accValues, acc)
-								}
-								accNeverConsidered = false
-							}
-							if tcc, exists := statValues[TCC]; exists {
-								if tcc > STATS_NA {
-									tccValues = append(tccValues, tcc)
-								}
-								tccNeverConsidered = false
-							}
-							if ddc, exists := statValues[TCC]; exists {
-								if ddc > STATS_NA {
-									ddcValues = append(ddcValues, ddc)
-								}
-								ddcNeverConsidered = false
-							}
-
-						}
-					}
-					if lcrCost.Entry.Strategy == LCR_STRATEGY_LOAD {
-						if len(supplierQueues) > 0 {
-							lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-								Supplier:       fullSupplier,
-								supplierQueues: supplierQueues,
-							})
-						}
-						continue // next supplier
-					}
-
-					if statsErr { // Stats error in loop, to go next supplier
-						continue
-					}
-					asrValues.Sort()
-					pddValues.Sort()
-					acdValues.Sort()
-					tcdValues.Sort()
-					accValues.Sort()
-					tccValues.Sort()
-					ddcValues.Sort()
-
-					//log.Print(asrValues, acdValues)
-					if utils.IsSliceMember([]string{LCR_STRATEGY_QOS_THRESHOLD, LCR_STRATEGY_QOS}, lcrCost.Entry.Strategy) {
-						qosSortParams = lcrCost.Entry.GetParams()
-					}
-					if lcrCost.Entry.Strategy == LCR_STRATEGY_QOS_THRESHOLD {
-						// filter suppliers by qos thresholds
-						asrMin, asrMax, pddMin, pddMax, acdMin, acdMax, tcdMin, tcdMax, accMin, accMax, tccMin, tccMax, ddcMin, ddcMax := lcrCost.Entry.GetQOSLimits()
-						//log.Print(asrMin, asrMax, acdMin, acdMax)
-						// skip current supplier if off limits
-						if asrMin > 0 && len(asrValues) != 0 && asrValues[0] < asrMin {
-							continue
-						}
-						if asrMax > 0 && len(asrValues) != 0 && asrValues[len(asrValues)-1] > asrMax {
-							continue
-						}
-						if pddMin > 0 && len(pddValues) != 0 && pddValues[0] < pddMin.Seconds() {
-							continue
-						}
-						if pddMax > 0 && len(pddValues) != 0 && pddValues[len(pddValues)-1] > pddMax.Seconds() {
-							continue
-						}
-						if acdMin > 0 && len(acdValues) != 0 && acdValues[0] < acdMin.Seconds() {
-							continue
-						}
-						if acdMax > 0 && len(acdValues) != 0 && acdValues[len(acdValues)-1] > acdMax.Seconds() {
-							continue
-						}
-						if tcdMin > 0 && len(tcdValues) != 0 && tcdValues[0] < tcdMin.Seconds() {
-							continue
-						}
-						if tcdMax > 0 && len(tcdValues) != 0 && tcdValues[len(tcdValues)-1] > tcdMax.Seconds() {
-							continue
-						}
-						if accMin > 0 && len(accValues) != 0 && accValues[0] < accMin {
-							continue
-						}
-						if accMax > 0 && len(accValues) != 0 && accValues[len(accValues)-1] > accMax {
-							continue
-						}
-						if tccMin > 0 && len(tccValues) != 0 && tccValues[0] < tccMin {
-							continue
-						}
-						if tccMax > 0 && len(tccValues) != 0 && tccValues[len(tccValues)-1] > tccMax {
-							continue
-						}
-						if ddcMin > 0 && len(ddcValues) != 0 && ddcValues[0] < ddcMin {
-							continue
-						}
-						if ddcMax > 0 && len(ddcValues) != 0 && ddcValues[len(ddcValues)-1] > ddcMax {
-							continue
-						}
-					}
-				}
-			}
-
-			var cc *CallCost
-			var err error
-			if cd.account, err = dm.DataDB().GetAccount(lcrCD.GetAccountKey()); err == nil {
-				if cd.account.Disabled {
-					lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-						Supplier: fullSupplier,
-						Error:    fmt.Sprintf("supplier %s is disabled", supplier),
-					})
-					continue
-				}
-				cc, err = lcrCD.debit(cd.account, true, true)
-			} else {
-				cc, err = lcrCD.GetCost()
-			}
-			if err != nil || cc == nil {
-				lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, &LCRSupplierCost{
-					Supplier: fullSupplier,
-					Error:    err.Error(),
-				})
-				continue
-			} else {
-				if lcrFltr != nil {
-					if lcrFltr.MinCost != nil && cc.Cost < *lcrFltr.MinCost {
-						continue // MinCost not reached, ignore the supplier
-					}
-					if lcrFltr.MaxCost != nil && cc.Cost >= *lcrFltr.MaxCost {
-						continue // Equal or higher than MaxCost allowed, ignore the supplier
-					}
-				}
-				supplCost := &LCRSupplierCost{
-					Supplier: fullSupplier,
-					Cost:     cc.Cost,
-					Duration: cc.GetDuration(),
-				}
-				qos := make(map[string]float64, 5)
-				if !asrNeverConsidered {
-					qos[ASR] = utils.AvgNegative(asrValues)
-				}
-				if !pddNeverConsidered {
-					qos[PDD] = utils.AvgNegative(pddValues)
-				}
-				if !acdNeverConsidered {
-					qos[ACD] = utils.AvgNegative(acdValues)
-				}
-				if !tcdNeverConsidered {
-					qos[TCD] = utils.AvgNegative(tcdValues)
-				}
-				if !accNeverConsidered {
-					qos[ACC] = utils.AvgNegative(accValues)
-				}
-				if !tccNeverConsidered {
-					qos[TCC] = utils.AvgNegative(tccValues)
-				}
-				if !ddcNeverConsidered {
-					qos[DDC] = utils.AvgNegative(ddcValues)
-				}
-				if utils.IsSliceMember([]string{LCR_STRATEGY_QOS, LCR_STRATEGY_QOS_THRESHOLD}, lcrCost.Entry.Strategy) {
-					supplCost.QOS = qos
-					supplCost.qosSortParams = qosSortParams
-				}
-				lcrCost.SupplierCosts = append(lcrCost.SupplierCosts, supplCost)
-			}
-		}
-		// sort according to strategy
-		lcrCost.Sort()
-	}
-	if p != nil {
-		if p.Offset != nil && *p.Offset > 0 && *p.Offset < len(lcrCost.SupplierCosts) {
-			lcrCost.SupplierCosts = lcrCost.SupplierCosts[*p.Offset:]
-		}
-		if p.Limit != nil && *p.Limit > 0 && *p.Limit < len(lcrCost.SupplierCosts) {
-			lcrCost.SupplierCosts = lcrCost.SupplierCosts[:*p.Limit]
-		}
-	}
-	return lcrCost, nil
-}
-
 // AccountSummary returns the AccountSummary for cached account
 func (cd *CallDescriptor) AccountSummary() *AccountSummary {
 	if cd.account == nil {
 		return nil
 	}
 	return cd.account.AsAccountSummary()
+}
+
+// FieldAsInterface is part of utils.DataProvider
+func (cd *CallDescriptor) FieldAsInterface(fldPath []string) (fldVal interface{}, err error) {
+	if len(fldPath) == 0 {
+		return nil, utils.ErrNotFound
+	}
+	return utils.ReflectFieldInterface(cd, fldPath[0], utils.EXTRA_FIELDS)
+}
+
+// FieldAsString is part of utils.DataProvider
+func (cd *CallDescriptor) FieldAsString(fldPath []string) (fldVal string, err error) {
+	if len(fldPath) == 0 {
+		return "", utils.ErrNotFound
+	}
+	return utils.ReflectFieldAsString(cd, fldPath[0], utils.EXTRA_FIELDS)
+}
+
+// String is part of utils.DataProvider
+func (cd *CallDescriptor) String() string {
+	return utils.ToJSON(cd)
+}
+
+// AsNavigableMap is part of utils.DataProvider
+func (cd *CallDescriptor) AsNavigableMap(tpl []*config.FCTemplate) (nM *config.NavigableMap, err error) {
+	return nil, utils.ErrNotImplemented
+}
+
+// RemoteHost is part of utils.DataProvider
+func (cd *CallDescriptor) RemoteHost() net.Addr {
+	return new(utils.LocalAddr)
 }
