@@ -16,3 +16,4 @@
 016_increase_loader_log.patch
 017_skip_incomplete_lcr_rules.patch
 018_rerating_prepaid_calls.patch
+019_use_parsetimedectlayout.patch

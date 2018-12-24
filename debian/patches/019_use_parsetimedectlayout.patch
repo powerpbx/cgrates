@@ -1,0 +1,301 @@
+commit 31d31541a2fdd18a849ed4de80d4b1c00119ede5
+Author: TeoV <teofil.voivozeanu@itsyscom.com>
+Date:   Tue Dec 4 00:57:52 2018 -0800
+
+    Replace ParseDate with ParseTimeDetectlayout
+    
+    This patch adapts changes of bbc863f and 417e146 of master branch.
+    
+    Avoids:
+    
+    - Problems with timezones with negative UTC offsets.
+    
+    - Problems with tp_rating_profiles.activation_time datetime format parsing.
+
+diff --git a/apier/v1/apier_it_test.go b/apier/v1/apier_it_test.go
+index af660b5f3..3588bd52d 100644
+--- a/apier/v1/apier_it_test.go
++++ b/apier/v1/apier_it_test.go
+@@ -738,8 +738,8 @@ func TestApierSetRatingProfile(t *testing.T) {
+ 	}
+ 	// Make sure rates were loaded for account dan
+ 	// Test here ResponderGetCost
+-	tStart, _ := utils.ParseDate("2013-08-07T17:30:00Z")
+-	tEnd, _ := utils.ParseDate("2013-08-07T17:31:30Z")
++	tStart, _ := utils.ParseTimeDetectLayout("2013-08-07T17:30:00Z", "")
++	tEnd, _ := utils.ParseTimeDetectLayout("2013-08-07T17:31:30Z", "")
+ 	cd := engine.CallDescriptor{
+ 		Direction:     "*out",
+ 		Category:      "call",
+@@ -1297,8 +1297,8 @@ func TestApierGetAccountAfterLoad(t *testing.T) {
+ 
+ // Test here ResponderGetCost
+ func TestApierResponderGetCost(t *testing.T) {
+-	tStart, _ := utils.ParseDate("2013-08-07T17:30:00Z")
+-	tEnd, _ := utils.ParseDate("2013-08-07T17:31:30Z")
++	tStart, _ := utils.ParseTimeDetectLayout("2013-08-07T17:30:00Z", "")
++	tEnd, _ := utils.ParseTimeDetectLayout("2013-08-07T17:31:30Z", "")
+ 	cd := engine.CallDescriptor{
+ 		Direction:     "*out",
+ 		Category:      "call",
+diff --git a/apier/v1/triggers.go b/apier/v1/triggers.go
+index f749c4a35..1ccfeb5cc 100644
+--- a/apier/v1/triggers.go
++++ b/apier/v1/triggers.go
+@@ -291,7 +291,8 @@ func (self *ApierV1) SetAccountActionTriggers(attr AttrSetAccountActionTriggers,
+ 					at.Balance.Weight = attr.BalanceWeight
+ 				}
+ 				if attr.BalanceExpirationDate != nil {
+-					balanceExpTime, err := utils.ParseDate(*attr.BalanceExpirationDate)
++					balanceExpTime, err := utils.ParseTimeDetectLayout(*attr.BalanceExpirationDate,
++						"")
+ 					if err != nil {
+ 						return 0, err
+ 					}
+@@ -483,7 +484,8 @@ func (self *ApierV1) SetActionTrigger(attr AttrSetActionTrigger, reply *string)
+ 		newAtr.Balance.Weight = attr.BalanceWeight
+ 	}
+ 	if attr.BalanceExpirationDate != nil {
+-		balanceExpTime, err := utils.ParseDate(*attr.BalanceExpirationDate)
++		balanceExpTime, err := utils.ParseTimeDetectLayout(*attr.BalanceExpirationDate,
++			"")
+ 		if err != nil {
+ 			*reply = err.Error()
+ 			return err
+diff --git a/apier/v2/triggers.go b/apier/v2/triggers.go
+index 5a93919de..909cae479 100644
+--- a/apier/v2/triggers.go
++++ b/apier/v2/triggers.go
+@@ -121,7 +121,7 @@ func (attr *AttrSetAccountActionTriggers) UpdateActionTrigger(at *engine.ActionT
+ 		at.Balance.Weight = attr.BalanceWeight
+ 	}
+ 	if attr.BalanceExpirationDate != nil {
+-		balanceExpTime, err := utils.ParseDate(*attr.BalanceExpirationDate)
++		balanceExpTime, err := utils.ParseTimeDetectLayout(*attr.BalanceExpirationDate, timezone)
+ 		if err != nil {
+ 			return false, err
+ 		}
+diff --git a/engine/action_plan.go b/engine/action_plan.go
+index 5c54236b3..396c150d9 100644
+--- a/engine/action_plan.go
++++ b/engine/action_plan.go
+@@ -317,7 +317,8 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
+ 					a.Balance = &BalanceFilter{}
+ 				}
+ 				if a.ExpirationString != "" { // if it's *unlimited then it has to be zero time
+-					if expDate, parseErr := utils.ParseDate(a.ExpirationString); parseErr == nil {
++					if expDate, parseErr := utils.ParseTimeDetectLayout(a.ExpirationString,
++						""); parseErr == nil {
+ 						a.Balance.ExpirationDate = &time.Time{}
+ 						*a.Balance.ExpirationDate = expDate
+ 					}
+@@ -354,7 +355,8 @@ func (at *ActionTiming) Execute(successActions, failedActions chan *Action) (err
+ 	}
+ 	if len(at.accountIDs) == 0 { // action timing executing without accounts
+ 		for _, a := range aac {
+-			if expDate, parseErr := utils.ParseDate(a.ExpirationString); (a.Balance == nil || a.Balance.EmptyExpirationDate()) &&
++			if expDate, parseErr := utils.ParseTimeDetectLayout(a.ExpirationString,
++				""); (a.Balance == nil || a.Balance.EmptyExpirationDate()) &&
+ 				parseErr == nil && !expDate.IsZero() {
+ 				a.Balance.ExpirationDate = &time.Time{}
+ 				*a.Balance.ExpirationDate = expDate
+diff --git a/engine/action_trigger.go b/engine/action_trigger.go
+index d51d5c1b9..d242fe168 100644
+--- a/engine/action_trigger.go
++++ b/engine/action_trigger.go
+@@ -81,7 +81,8 @@ func (at *ActionTrigger) Execute(ub *Account, sq *CDRStatsQueueTriggered) (err e
+ 			a.Balance = &BalanceFilter{}
+ 		}
+ 		if a.ExpirationString != "" { // if it's *unlimited then it has to be zero time'
+-			if expDate, parseErr := utils.ParseDate(a.ExpirationString); parseErr == nil {
++			if expDate, parseErr := utils.ParseTimeDetectLayout(a.ExpirationString,
++				""); parseErr == nil {
+ 				a.Balance.ExpirationDate = &time.Time{}
+ 				*a.Balance.ExpirationDate = expDate
+ 			}
+diff --git a/engine/tp_reader.go b/engine/tp_reader.go
+index b6cfb97df..bdf967fe7 100755
+--- a/engine/tp_reader.go
++++ b/engine/tp_reader.go
+@@ -389,7 +389,7 @@ func (tpr *TpReader) LoadRatingProfilesFiltered(qriedRpf *utils.TPRatingProfile)
+ 	for _, tpRpf := range rpfs {
+ 		resultRatingProfile = &RatingProfile{Id: tpRpf.KeyId()}
+ 		for _, tpRa := range tpRpf.RatingPlanActivations {
+-			at, err := utils.ParseDate(tpRa.ActivationTime)
++			at, err := utils.ParseTimeDetectLayout(tpRa.ActivationTime, tpr.timezone)
+ 			if err != nil {
+ 				return fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
+ 			}
+@@ -429,7 +429,7 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
+ 	for _, tpRpf := range mpTpRpfs {
+ 		rpf := &RatingProfile{Id: tpRpf.KeyId()}
+ 		for _, tpRa := range tpRpf.RatingPlanActivations {
+-			at, err := utils.ParseDate(tpRa.ActivationTime)
++			at, err := utils.ParseTimeDetectLayout(tpRa.ActivationTime, tpr.timezone)
+ 			if err != nil {
+ 				return fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
+ 			}
+diff --git a/sessionmanager/data_it_test.go b/sessionmanager/data_it_test.go
+index 2965918c7..a886cff32 100644
+--- a/sessionmanager/data_it_test.go
++++ b/sessionmanager/data_it_test.go
+@@ -92,7 +92,7 @@ func TestSMGDataLastUsedData(t *testing.T) {
+ 		t.Errorf("Expected: %f, received: %f",
+ 			eAcntVal, acnt.BalanceMap[utils.DATA].GetTotalValue())
+ 	}
+-	tStart, _ := utils.ParseDate("2016-01-05T18:31:05Z")
++	tStart, _ := utils.ParseTimeDetectLayout("2016-01-05T18:31:05Z", "")
+ 	cd := engine.CallDescriptor{
+ 		Direction:   "*out",
+ 		Category:    "data",
+diff --git a/utils/coreutils.go b/utils/coreutils.go
+index 2fc088788..dd012fbfc 100644
+--- a/utils/coreutils.go
++++ b/utils/coreutils.go
+@@ -174,6 +174,24 @@ func ParseTimeDetectLayout(tmStr string, timezone string) (time.Time, error) {
+ 	eamonTimestampRule := regexp.MustCompile(`^\d{2}/\d{2}/\d{4}\s{1}\d{2}:\d{2}:\d{2}$`)
+ 	broadsoftTimestampRule := regexp.MustCompile(`^\d{14}\.\d{3}`)
+ 	switch {
++	case tmStr == UNLIMITED || tmStr == "":
++	// leave it at zero
++	case tmStr == "*daily":
++		return time.Now().AddDate(0, 0, 1), nil // add one day
++	case tmStr == "*monthly":
++		return time.Now().AddDate(0, 1, 0), nil // add one month
++	case tmStr == "*yearly":
++		return time.Now().AddDate(1, 0, 0), nil // add one year
++	case strings.HasPrefix(tmStr, "*month_end"):
++		expDate := GetEndOfMonth(time.Now())
++		if eDurIdx := strings.Index(tmStr, "+"); eDurIdx != -1 {
++			var extraDur time.Duration
++			if extraDur, err = time.ParseDuration(tmStr[eDurIdx+1:]); err != nil {
++				return nilTime, err
++			}
++			expDate = expDate.Add(extraDur)
++		}
++		return expDate, nil
+ 	case astTimestamp.MatchString(tmStr):
+ 		return time.Parse("2006-01-02T15:04:05.999999999-0700", tmStr)
+ 	case rfc3339Rule.MatchString(tmStr):
+@@ -220,37 +238,6 @@ func ParseTimeDetectLayout(tmStr string, timezone string) (time.Time, error) {
+ 	return nilTime, errors.New("Unsupported time format")
+ }
+ 
+-func ParseDate(date string) (expDate time.Time, err error) {
+-	date = strings.TrimSpace(date)
+-	switch {
+-	case date == UNLIMITED || date == "":
+-		// leave it at zero
+-	case strings.HasPrefix(date, "+"):
+-		d, err := time.ParseDuration(date[1:])
+-		if err != nil {
+-			return expDate, err
+-		}
+-		expDate = time.Now().Add(d)
+-	case date == "*daily":
+-		expDate = time.Now().AddDate(0, 0, 1) // add one day
+-	case date == "*monthly":
+-		expDate = time.Now().AddDate(0, 1, 0) // add one month
+-	case date == "*yearly":
+-		expDate = time.Now().AddDate(1, 0, 0) // add one year
+-	case date == "*month_end":
+-		expDate = GetEndOfMonth(time.Now())
+-	case strings.HasSuffix(date, "Z") || strings.Index(date, "+") != -1: // Allow both Z and +hh:mm format
+-		expDate, err = time.Parse(time.RFC3339, date)
+-	default:
+-		unix, err := strconv.ParseInt(date, 10, 64)
+-		if err != nil {
+-			return expDate, err
+-		}
+-		expDate = time.Unix(unix, 0)
+-	}
+-	return expDate, err
+-}
+-
+ // returns a number equal or larger than the amount that exactly
+ // is divisible to whole
+ func RoundDuration(whole, amount time.Duration) time.Duration {
+diff --git a/utils/coreutils_test.go b/utils/coreutils_test.go
+index 8a6b88965..fe2c21513 100644
+--- a/utils/coreutils_test.go
++++ b/utils/coreutils_test.go
+@@ -239,53 +239,55 @@ func TestParseTimeDetectLayout(t *testing.T) {
+ 	} else if parseNowTimeStr.After(start) && parseNowTimeStr.Before(end) {
+ 		t.Errorf("Unexpected time parsed: %v", parseNowTimeStr)
+ 	}
+-}
+ 
+-func TestParseDateUnix(t *testing.T) {
+-	date, err := ParseDate("1375212790")
+ 	expected := time.Date(2013, 7, 30, 19, 33, 10, 0, time.UTC)
++	date, err := ParseTimeDetectLayout("1375212790", "")
+ 	if err != nil || !date.Equal(expected) {
+ 		t.Error("error parsing date: ", expected.Sub(date))
+ 	}
+-}
+ 
+-func TestParseDateUnlimited(t *testing.T) {
+-	date, err := ParseDate("*unlimited")
++	date, err = ParseTimeDetectLayout("*unlimited", "")
+ 	if err != nil || !date.IsZero() {
+ 		t.Error("error parsing unlimited date!: ")
+ 	}
+-}
+ 
+-func TestParseDateEmpty(t *testing.T) {
+-	date, err := ParseDate("")
++	date, err = ParseTimeDetectLayout("", "")
+ 	if err != nil || !date.IsZero() {
+ 		t.Error("error parsing unlimited date!: ")
+ 	}
+-}
+ 
+-func TestParseDatePlus(t *testing.T) {
+-	date, err := ParseDate("+20s")
+-	expected := time.Now()
++	date, err = ParseTimeDetectLayout("+20s", "")
++	expected = time.Now()
+ 	if err != nil || date.Sub(expected).Seconds() > 20 || date.Sub(expected).Seconds() < 19 {
+ 		t.Error("error parsing date: ", date.Sub(expected).Seconds())
+ 	}
+-}
+ 
+-func TestParseDateMonthly(t *testing.T) {
+-	date, err := ParseDate("*monthly")
+-	expected := time.Now().AddDate(0, 1, 0)
+-	if err != nil || expected.Sub(date).Seconds() > 1 {
+-		t.Error("error parsing date: ", expected.Sub(date).Seconds())
++	expected = time.Now().AddDate(0, 1, 0)
++	if date, err := ParseTimeDetectLayout("*monthly", ""); err != nil {
++		t.Error(err)
++	} else if expected.Sub(date).Seconds() > 1 {
++		t.Errorf("received: %+v", date)
+ 	}
+-}
+ 
+-func TestParseDateRFC3339(t *testing.T) {
+-	date, err := ParseDate("2013-07-30T19:33:10Z")
+-	expected := time.Date(2013, 7, 30, 19, 33, 10, 0, time.UTC)
++	expected = GetEndOfMonth(time.Now())
++	if date, err := ParseTimeDetectLayout("*month_end", ""); err != nil {
++		t.Error(err)
++	} else if !date.Equal(expected) {
++		t.Errorf("received: %+v", date)
++	}
++	expected = GetEndOfMonth(time.Now()).Add(time.Hour).Add(2 * time.Minute)
++	if date, err := ParseTimeDetectLayout("*month_end+1h2m", ""); err != nil {
++		t.Error(err)
++	} else if !date.Equal(expected) {
++		t.Errorf("expecting: %+v, received: %+v", expected, date)
++	}
++
++	date, err = ParseTimeDetectLayout("2013-07-30T19:33:10Z", "")
++	expected = time.Date(2013, 7, 30, 19, 33, 10, 0, time.UTC)
+ 	if err != nil || !date.Equal(expected) {
+ 		t.Error("error parsing date: ", expected.Sub(date))
+ 	}
+-	date, err = ParseDate("2016-04-01T02:00:00+02:00")
++	date, err = ParseTimeDetectLayout("2016-04-01T02:00:00+02:00", "")
+ 	expected = time.Date(2016, 4, 1, 0, 0, 0, 0, time.UTC)
+ 	if err != nil || !date.Equal(expected) {
+ 		t.Errorf("Expecting: %v, received: %v", expected, date)
