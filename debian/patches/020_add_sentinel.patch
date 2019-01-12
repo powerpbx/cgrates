@@ -1,0 +1,956 @@
+From f2549a925187374b9c6d2da5d8935ee66feda0c1 Mon Sep 17 00:00:00 2001
+From: TeoV <teofil.voivozeanu@itsyscom.com>
+Date: Wed, 3 Oct 2018 06:57:48 -0400
+Subject: [PATCH 1/2] Allow engine to connect to a redis sentinel(+test)
+
+(cherry picked from commit 25e3cda1d71e04cf35e0adab8b6ac324b3faf314)
+---
+ apier/v1/filter_indexes_it_test.go         |   4 +-
+ apier/v1/filterindexecache_it_test.go      |   8 +-
+ apier/v2/apierv2_it_test.go                |   5 +-
+ cmd/cgr-engine/cgr-engine.go               |   5 +-
+ cmd/cgr-loader/cgr-loader.go               |   2 +
+ cmd/cgr-migrator/cgr-migrator.go           |  16 +-
+ cmd/cgr-tester/cgr-tester.go               |   4 +-
+ config/config.go                           |   4 +
+ config/config_defaults.go                  |   2 +-
+ config/config_json_test.go                 |  16 +-
+ config/config_test.go                      |   3 -
+ config/libconfig_json.go                   |   1 +
+ data/conf/samples/tutmysql/cgrates.json    |   5 +
+ data/conf/samples/tutsentinel/cgrates.json |  36 ++++
+ data/sentinel/node1.conf                   |   4 +
+ data/sentinel/node2.conf                   |   6 +
+ data/sentinel/sentinel1.conf               |  13 ++
+ engine/datamanager_it_test.go              |   5 +-
+ engine/libtest.go                          |   5 +-
+ engine/loader_it_test.go                   |   9 +-
+ engine/onstor_it_test.go                   |   4 +-
+ engine/storage_mongo_datadb.go             |  15 +-
+ engine/storage_redis.go                    |  48 +++--
+ engine/storage_utils.go                    |   8 +-
+ engine/stordb_it_test.go                   |   2 +-
+ engine/versions_it_test.go                 |  19 +-
+ general_tests/sentinel_it_test.go          | 193 +++++++++++++++++++++
+ 27 files changed, 370 insertions(+), 72 deletions(-)
+ create mode 100755 data/conf/samples/tutsentinel/cgrates.json
+ create mode 100755 data/sentinel/node1.conf
+ create mode 100755 data/sentinel/node2.conf
+ create mode 100755 data/sentinel/sentinel1.conf
+ create mode 100755 general_tests/sentinel_it_test.go
+
+diff --git a/apier/v1/filter_indexes_it_test.go b/apier/v1/filter_indexes_it_test.go
+index ac7cc7a91..38cef0bed 100644
+--- a/apier/v1/filter_indexes_it_test.go
++++ b/apier/v1/filter_indexes_it_test.go
+@@ -86,7 +86,7 @@ var sTestsFilterIndexesSV1 = []func(t *testing.T){
+ func TestFIdxV1ITMySQLConnect(t *testing.T) {
+ 	cfg, _ := config.NewDefaultCGRConfig()
+ 	rdsITdb, err = engine.NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 10,
+-		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
++		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, "")
+ 
+ 	if err != nil {
+ 		t.Fatal("Could not connect to Redis", err.Error())
+@@ -110,7 +110,7 @@ func TestFIdxV1ITMongoConnect(t *testing.T) {
+ 	}
+ 	if mgoITdb, err = engine.NewMongoStorage(mgoITCfg.DataDbHost, mgoITCfg.DataDbPort,
+ 		mgoITCfg.DataDbName, mgoITCfg.DataDbUser, mgoITCfg.DataDbPass,
+-		utils.DataDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize); err != nil {
++		utils.DataDB, nil, mgoITCfg.CacheCfg()); err != nil {
+ 		t.Fatal(err)
+ 	}
+ }
+diff --git a/apier/v1/filterindexecache_it_test.go b/apier/v1/filterindexecache_it_test.go
+index a6e18102d..07ce9ae20 100644
+--- a/apier/v1/filterindexecache_it_test.go
++++ b/apier/v1/filterindexecache_it_test.go
+@@ -81,9 +81,8 @@ var sTestsFilterIndexesSV1Ca = []func(t *testing.T){
+ 
+ func TestFIdxCaV1ITMySQLConnect(t *testing.T) {
+ 	cfg, _ := config.NewDefaultCGRConfig()
+-	rdsITdb, err = engine.NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 10,
+-		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
+-
++	rdsITdb, err := engine.NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 10,
++		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, "")
+ 	if err != nil {
+ 		t.Fatal("Could not connect to Redis", err.Error())
+ 	}
+@@ -106,7 +105,8 @@ func TestFIdxCaV1ITMongoConnect(t *testing.T) {
+ 	}
+ 	if mgoITdb, err = engine.NewMongoStorage(mgoITCfg.DataDbHost, mgoITCfg.DataDbPort,
+ 		mgoITCfg.DataDbName, mgoITCfg.DataDbUser, mgoITCfg.DataDbPass,
+-		utils.DataDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize); err != nil {
++		utils.DataDB, nil, mgoITCfg.CacheCfg())
++	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ }
+diff --git a/apier/v2/apierv2_it_test.go b/apier/v2/apierv2_it_test.go
+index c24e99999..63f79caf4 100644
+--- a/apier/v2/apierv2_it_test.go
++++ b/apier/v2/apierv2_it_test.go
+@@ -38,7 +38,7 @@ import (
+ 
+ var (
+ 	dataDir   = flag.String("data_dir", "/usr/share/cgrates", "CGR data dir path here")
+-	waitRater = flag.Int("wait_rater", 500, "Number of miliseconds to wait for rater to start and cache")
++	waitRater = flag.Int("wait_rater", 1500, "Number of miliseconds to wait for rater to start and cache")
+ )
+ 
+ var apierCfgPath string
+@@ -69,7 +69,8 @@ func TestApierV2itResetStorDb(t *testing.T) {
+ 
+ func TestApierV2itConnectDataDB(t *testing.T) {
+ 	rdsDb, _ := strconv.Atoi(apierCfg.DataDbName)
+-	if rdsITdb, err := engine.NewRedisStorage(fmt.Sprintf("%s:%s", apierCfg.DataDbHost, apierCfg.DataDbPort), rdsDb, apierCfg.DataDbPass, apierCfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1); err != nil {
++	if rdsITdb, err := engine.NewRedisStorage(fmt.Sprintf("%s:%s", apierCfg.DataDbHost, apierCfg.DataDbPort),
++		rdsDb, apierCfg.DataDbPass, apierCfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, ""); err != nil {
+ 		t.Fatal("Could not connect to Redis", err.Error())
+ 	} else {
+ 		dm = engine.NewDataManager(rdsITdb)
+diff --git a/cmd/cgr-engine/cgr-engine.go b/cmd/cgr-engine/cgr-engine.go
+index c44a33720..cb0504bda 100644
+--- a/cmd/cgr-engine/cgr-engine.go
++++ b/cmd/cgr-engine/cgr-engine.go
+@@ -801,8 +801,9 @@ func main() {
+ 
+ 	if cfg.RALsEnabled || cfg.CDRStatsEnabled || cfg.PubSubServerEnabled ||
+ 		cfg.AliasesServerEnabled || cfg.UserServerEnabled || cfg.SchedulerEnabled {
+-		dm, err = engine.ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
+-			cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), cfg.LoadHistorySize)
++		dm, err = engine.ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost,
++			cfg.DataDbPort, cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass,
++			cfg.DBDataEncoding, cfg.CacheCfg(), cfg.DataDbSentinelName)
+ 		if err != nil { // Cannot configure getter database, show stopper
+ 			utils.Logger.Crit(fmt.Sprintf("Could not configure dataDb: %s exiting!", err))
+ 			return
+diff --git a/cmd/cgr-loader/cgr-loader.go b/cmd/cgr-loader/cgr-loader.go
+index 9fcf89e3c..9a25b1654 100755
+--- a/cmd/cgr-loader/cgr-loader.go
++++ b/cmd/cgr-loader/cgr-loader.go
+@@ -48,6 +48,8 @@ var (
+ 	stor_db_pass = flag.String("stordb_passwd", utils.MetaDynamic, "The storDb user's password.")
+ 
+ 	dbdata_encoding = flag.String("dbdata_encoding", config.CgrConfig().DBDataEncoding, "The encoding used to store object data in strings")
++	dbRedisSentinel = flag.String("redis_sentinel", config.CgrConfig().DataDbSentinelName,
++		"The name of redis sentinel")
+ 
+ 	flush           = flag.Bool("flushdb", false, "Flush the database before importing")
+ 	tpid            = flag.String("tpid", "", "The tariff plan id from the database")
+diff --git a/cmd/cgr-migrator/cgr-migrator.go b/cmd/cgr-migrator/cgr-migrator.go
+index 88a988dfc..0b0b181a6 100755
+--- a/cmd/cgr-migrator/cgr-migrator.go
++++ b/cmd/cgr-migrator/cgr-migrator.go
+@@ -54,6 +54,9 @@ var (
+ 	inStorDBUser = flag.String("stordb_user", utils.MetaDynamic, "The StorDB user to sign in as.")
+ 	inStorDBPass = flag.String("stordb_passwd", utils.MetaDynamic, "The StorDB user's password.")
+ 
++	inDataDBRedisSentinel = flag.String("redis_sentinel", config.CgrConfig().DataDbSentinelName,
++		"the name of redis sentinel")
++
+ 	outDataDBType = flag.String("out_datadb_type", utils.MetaDynamic, "The type of the DataDb Database <*redis|*mongo>")
+ 	outDataDBHost = flag.String("out_datadb_host", utils.MetaDynamic, "The DataDb host to connect to.")
+ 	outDataDBPort = flag.String("out_datadb_port", utils.MetaDynamic, "The DataDb port to bind to.")
+@@ -68,6 +71,9 @@ var (
+ 	outStorDBUser = flag.String("out_stordb_user", utils.MetaDynamic, "The StorDB user to sign in as.")
+ 	outStorDBPass = flag.String("out_stordb_passwd", utils.MetaDynamic, "The StorDB user's password.")
+ 
++	outDataDBRedisSentinel = flag.String("out_redis_sentinel", utils.MetaDynamic,
++		"the name of redis sentinel")
++
+ 	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
+ 
+ 	datadb_versions = flag.Bool("datadb_versions", false, "Print DataDB versions")
+@@ -91,6 +97,7 @@ func main() {
+ 	*inDataDBName = config.DBDefaults.DBName(*inDataDBType, *inDataDBName)
+ 	*inDataDBUser = config.DBDefaults.DBUser(*inDataDBType, *inDataDBUser)
+ 	*inDataDBPass = config.DBDefaults.DBPass(*inDataDBType, *inDataDBPass)
++	*inDataDBRedisSentinel = config.DBDefaults.DBPass(*inDataDBType, *inDataDbRedisSentinel)
+ 
+ 	*inStorDBType = strings.TrimPrefix(*inStorDBType, "*")
+ 	*inStorDBHost = config.DBDefaults.DBHost(*inStorDBType, *inStorDBHost)
+@@ -106,6 +113,8 @@ func main() {
+ 		*outDataDBName = *inDataDBName
+ 		*outDataDBUser = *inDataDBUser
+ 		*outDataDBPass = *inDataDBPass
++		*outDataDBRedisSentinel = *inDataDBRedisSentinel
++
+ 	} else {
+ 		*outDataDBType = strings.TrimPrefix(*outDataDBType, "*")
+ 		*outDataDBHost = config.DBDefaults.DBHost(*outDataDBType, *outDataDBHost)
+@@ -113,6 +122,7 @@ func main() {
+ 		*outDataDBName = config.DBDefaults.DBName(*outDataDBType, *outDataDBName)
+ 		*outDataDBUser = config.DBDefaults.DBUser(*outDataDBType, *outDataDBUser)
+ 		*outDataDBPass = config.DBDefaults.DBPass(*outDataDBType, *outDataDBPass)
++		*outDataDBRedisSentinel = config.DBDefaults.DBPass(*outDataDBType, *outDataDBRedisSentinel)
+ 	}
+ 
+ 	if *outStorDBType != utils.MetaDynamic {
+@@ -126,7 +136,7 @@ func main() {
+ 
+ 	var dmIN *engine.DataManager
+ 	dmIN, _ = engine.ConfigureDataStorage(*inDataDBType, *inDataDBHost, *inDataDBPort,
+-		*inDataDBName, *inDataDBUser, *inDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *loadHistorySize)
++		*inDataDBName, *inDataDBUser, *inDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), mgrCfg.CacheCfg(), *inDataDbSentinel)
+ 	instorDB, err := engine.ConfigureStorStorage(*inStorDBType, *inStorDBHost, *inStorDBPort, *inStorDBName, *inStorDBUser, *inStorDBPass, *inDBDataEncoding,
+ 		config.CgrConfig().StorDBMaxOpenConns, config.CgrConfig().StorDBMaxIdleConns, config.CgrConfig().StorDBConnMaxLifetime, config.CgrConfig().StorDBCDRSIndexes)
+ 	if err != nil {
+@@ -134,8 +144,8 @@ func main() {
+ 	}
+ 	var dmOUT *engine.DataManager
+ 	dmOUT, _ = engine.ConfigureDataStorage(*outDataDBType, *outDataDBHost, *outDataDBPort,
+-		*outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *loadHistorySize)
+-	outDataDB, err := migrator.ConfigureV1DataStorage(*outDataDBType, *outDataDBHost, *outDataDBPort, *outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding)
++		*outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *outDataDbSentinel)
++	outDataDB, err := migrator.ConfigureV1DataStorage(*outDataDBType, *outDataDBHost, *outDataDBPort, *outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding, *outDataDbSentinel)
+ 	if err != nil {
+ 		log.Fatal(err)
+ 	}
+diff --git a/cmd/cgr-tester/cgr-tester.go b/cmd/cgr-tester/cgr-tester.go
+index 045e6bae0..18db230f9 100644
+--- a/cmd/cgr-tester/cgr-tester.go
++++ b/cmd/cgr-tester/cgr-tester.go
+@@ -47,6 +47,7 @@ var (
+ 	datadb_user     = flag.String("datadb_user", cgrConfig.DataDbUser, "The DataDb user to sign in as.")
+ 	datadb_pass     = flag.String("datadb_pass", cgrConfig.DataDbPass, "The DataDb user's password.")
+ 	dbdata_encoding = flag.String("dbdata_encoding", cgrConfig.DBDataEncoding, "The encoding used to store object data in strings.")
++	redis_sentinel  = flag.String("redis_sentinel", cgrConfig.DataDbSentinelName, "The name of redis sentinel")
+ 	raterAddress    = flag.String("rater_address", "", "Rater address for remote tests. Empty for internal rater.")
+ 	tor             = flag.String("tor", utils.VOICE, "The type of record to use in queries.")
+ 	category        = flag.String("category", "call", "The Record category to test.")
+@@ -54,7 +55,6 @@ var (
+ 	subject         = flag.String("subject", "1001", "The rating subject to use in queries.")
+ 	destination     = flag.String("destination", "1002", "The destination to use in queries.")
+ 	json            = flag.Bool("json", false, "Use JSON RPC")
+-	loadHistorySize = flag.Int("load_history_size", cgrConfig.LoadHistorySize, "Limit the number of records in the load history")
+ 	version         = flag.Bool("version", false, "Prints the application version.")
+ 	nilDuration     = time.Duration(0)
+ 	usage           = flag.String("usage", "1m", "The duration to use in call simulation.")
+@@ -62,7 +62,7 @@ var (
+ 
+ func durInternalRater(cd *engine.CallDescriptor) (time.Duration, error) {
+ 	dm, err := engine.ConfigureDataStorage(*datadb_type, *datadb_host, *datadb_port,
+-		*datadb_name, *datadb_user, *datadb_pass, *dbdata_encoding, cgrConfig.CacheCfg(), *loadHistorySize)
++		*datadb_name, *datadb_user, *datadb_pass, *dbdata_encoding, cgrConfig.CacheCfg(), *DataDbSentinelName)
+ 	if err != nil {
+ 		return nilDuration, fmt.Errorf("Could not connect to data database: %s", err.Error())
+ 	}
+diff --git a/config/config.go b/config/config.go
+index 89e9d4816..c7e1476e2 100755
+--- a/config/config.go
++++ b/config/config.go
+@@ -255,6 +255,7 @@ type CGRConfig struct {
+ 	DataDbName               string // The name of the database to connect to.
+ 	DataDbUser               string // The user to sign in as.
+ 	DataDbPass               string // The user's password.
++	DataDbSentinelName       string
+ 	LoadHistorySize          int    // Maximum number of records to archive in load history
+ 	StorDBType               string // Should reflect the database type used to store logs
+ 	StorDBHost               string // The host to connect to. Values that start with / are for UNIX domain sockets.
+@@ -807,6 +808,9 @@ func (self *CGRConfig) loadFromJsonCfg(jsnCfg *CgrJsonCfg) (err error) {
+ 		if jsnDataDbCfg.Load_history_size != nil {
+ 			self.LoadHistorySize = *jsnDataDbCfg.Load_history_size
+ 		}
++		if jsnDataDbCfg.Redis_sentinel != nil {
++			self.DataDbSentinelName = *jsnDataDbCfg.Redis_sentinel
++		}
+ 	}
+ 
+ 	if jsnStorDbCfg != nil {
+diff --git a/config/config_defaults.go b/config/config_defaults.go
+index 03f552651..0a0506e98 100755
+--- a/config/config_defaults.go
++++ b/config/config_defaults.go
+@@ -58,7 +58,7 @@ const CGRATES_CFG_JSON = `
+ 	"db_name": "10", 						// data_db database name to connect to
+ 	"db_user": "cgrates", 					// username to use when connecting to data_db
+ 	"db_password": "", 						// password to use when connecting to data_db
+-	"load_history_size": 10,				// Number of records in the load history
++	"redis_sentinel":"",					// redis_sentinel is the name of sentinel
+ },
+ 
+ 
+diff --git a/config/config_json_test.go b/config/config_json_test.go
+index a86d0addf..ea8502869 100755
+--- a/config/config_json_test.go
++++ b/config/config_json_test.go
+@@ -195,18 +195,18 @@ func TestDfListenJsonCfg(t *testing.T) {
+ 
+ func TestDfDataDbJsonCfg(t *testing.T) {
+ 	eCfg := &DbJsonCfg{
+-		Db_type:           utils.StringPointer("redis"),
+-		Db_host:           utils.StringPointer("127.0.0.1"),
+-		Db_port:           utils.IntPointer(6379),
+-		Db_name:           utils.StringPointer("10"),
+-		Db_user:           utils.StringPointer("cgrates"),
+-		Db_password:       utils.StringPointer(""),
+-		Load_history_size: utils.IntPointer(10),
++		Db_type:        utils.StringPointer("redis"),
++		Db_host:        utils.StringPointer("127.0.0.1"),
++		Db_port:        utils.IntPointer(6379),
++		Db_name:        utils.StringPointer("10"),
++		Db_user:        utils.StringPointer("cgrates"),
++		Db_password:    utils.StringPointer(""),
++		Redis_sentinel: utils.StringPointer(""),
+ 	}
+ 	if cfg, err := dfCgrJsonCfg.DbJsonCfg(DATADB_JSN); err != nil {
+ 		t.Error(err)
+ 	} else if !reflect.DeepEqual(eCfg, cfg) {
+-		t.Error("Received: ", cfg)
++		t.Error("Received: ", utils.ToJSON(cfg))
+ 	}
+ }
+ 
+diff --git a/config/config_test.go b/config/config_test.go
+index c7ec9afc7..b4d4cf13b 100755
+--- a/config/config_test.go
++++ b/config/config_test.go
+@@ -250,9 +250,6 @@ func TestCgrCfgJSONDefaultsjsnDataDb(t *testing.T) {
+ 	if cgrCfg.DataDbPass != "" {
+ 		t.Error(cgrCfg.DataDbPass)
+ 	}
+-	if cgrCfg.LoadHistorySize != 10 {
+-		t.Error(cgrCfg.LoadHistorySize)
+-	}
+ }
+ 
+ func TestCgrCfgJSONDefaultsStorDB(t *testing.T) {
+diff --git a/config/libconfig_json.go b/config/libconfig_json.go
+index 89e5b2cb5..cfb4ec3ec 100755
+--- a/config/libconfig_json.go
++++ b/config/libconfig_json.go
+@@ -70,6 +70,7 @@ type DbJsonCfg struct {
+ 	Conn_max_lifetime *int // Used only in case of storDb
+ 	Load_history_size *int // Used in case of dataDb to limit the length of the loads history
+ 	Cdrs_indexes      *[]string
++	Redis_sentinel    *string
+ }
+ 
+ // Filters config
+diff --git a/data/conf/samples/tutmysql/cgrates.json b/data/conf/samples/tutmysql/cgrates.json
+index 1d66c2275..eb5ac9fec 100644
+--- a/data/conf/samples/tutmysql/cgrates.json
++++ b/data/conf/samples/tutmysql/cgrates.json
+@@ -14,6 +14,11 @@
+ 	"http": ":2080",
+ },
+ 
++"data_db": {								// database used to store runtime data (eg: accounts, cdr stats)
++	"db_type": "redis",						// data_db type: <redis|mongo>
++	"db_port": 6379, 						// data_db port to reach the database
++	"db_name": "10", 						// data_db database name to connect to
++},
+ 
+ "stor_db": {
+ 	"db_password": "CGRateS.org",
+diff --git a/data/conf/samples/tutsentinel/cgrates.json b/data/conf/samples/tutsentinel/cgrates.json
+new file mode 100755
+index 000000000..343a33f94
+--- /dev/null
++++ b/data/conf/samples/tutsentinel/cgrates.json
+@@ -0,0 +1,36 @@
++{
++// CGRateS Configuration file
++//
++
++
++"general": {
++	"log_level": 7,
++},
++
++
++"listen": {
++	"rpc_json": ":2012",
++	"rpc_gob": ":2013",
++	"http": ":2080",
++},
++
++
++"data_db": {								// database used to store runtime data (eg: accounts, cdr stats)
++	"db_type": "redis",						// data_db type: <redis|mongo>
++	"db_port": 16381, 						// data_db port to reach the database
++	"db_name": "10", 						// data_db database name to connect to
++	"redis_sentinel":"redis-cluster",	
++},
++
++
++"stor_db": {
++	"db_password": "CGRateS.org",
++},
++
++
++"rals": {
++	"enabled": true,
++},
++
++
++}
+diff --git a/data/sentinel/node1.conf b/data/sentinel/node1.conf
+new file mode 100755
+index 000000000..4c0beff67
+--- /dev/null
++++ b/data/sentinel/node1.conf
+@@ -0,0 +1,4 @@
++bind localhost
++port 16379
++
++dir .
+diff --git a/data/sentinel/node2.conf b/data/sentinel/node2.conf
+new file mode 100755
+index 000000000..a8aeb14cb
+--- /dev/null
++++ b/data/sentinel/node2.conf
+@@ -0,0 +1,6 @@
++bind localhost
++port 16380
++
++dir .
++
++slaveof localhost 16379
+\ No newline at end of file
+diff --git a/data/sentinel/sentinel1.conf b/data/sentinel/sentinel1.conf
+new file mode 100755
+index 000000000..1c30f7dff
+--- /dev/null
++++ b/data/sentinel/sentinel1.conf
+@@ -0,0 +1,13 @@
++# Host and port we will listen for requests on
++bind localhost
++port 16381
++
++#
++# "redis-cluster" is the name of our cluster
++#
++# each sentinel process is paired with a redis-server process
++#
++sentinel monitor redis-cluster 127.0.0.1 16379 1
++sentinel down-after-milliseconds redis-cluster 5000
++sentinel failover-timeout redis-cluster 10000
++sentinel config-epoch redis-cluster 90
+diff --git a/engine/datamanager_it_test.go b/engine/datamanager_it_test.go
+index 290c69722..4ee272206 100644
+--- a/engine/datamanager_it_test.go
++++ b/engine/datamanager_it_test.go
+@@ -42,7 +42,8 @@ var sTestsDMit = []func(t *testing.T){
+ 
+ func TestDMitRedis(t *testing.T) {
+ 	cfg, _ := config.NewDefaultCGRConfig()
+-	dataDB, err := NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 4, cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
++	dataDB, err := NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 4,
++		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, "")
+ 	if err != nil {
+ 		t.Fatal("Could not connect to Redis", err.Error())
+ 	}
+@@ -60,7 +61,7 @@ func TestDMitMongo(t *testing.T) {
+ 	}
+ 	dataDB, err := NewMongoStorage(mgoITCfg.StorDBHost, mgoITCfg.StorDBPort,
+ 		mgoITCfg.StorDBName, mgoITCfg.StorDBUser, mgoITCfg.StorDBPass,
+-		utils.StorDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize)
++		utils.StorDB, nil, mgoITCfg.CacheCfg())
+ 	if err != nil {
+ 		t.Fatal("Could not connect to Mongo", err.Error())
+ 	}
+diff --git a/engine/libtest.go b/engine/libtest.go
+index a73d5a09e..aa398d427 100644
+--- a/engine/libtest.go
++++ b/engine/libtest.go
+@@ -34,8 +34,9 @@ import (
+ )
+ 
+ func InitDataDb(cfg *config.CGRConfig) error {
+-	dm, err := ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort, cfg.DataDbName,
+-		cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), cfg.LoadHistorySize)
++	dm, err := ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
++		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding,
++		cfg.CacheCfg(), cfg.DataDbSentinelName)
+ 	if err != nil {
+ 		return err
+ 	}
+diff --git a/engine/loader_it_test.go b/engine/loader_it_test.go
+index fbd577dfe..f6d3b943e 100755
+--- a/engine/loader_it_test.go
++++ b/engine/loader_it_test.go
+@@ -44,18 +44,19 @@ func TestLoaderITConnDataDbs(t *testing.T) {
+ 	lCfg.StorDBPass = "CGRateS.org"
+ 	var err error
+ 	if dataDbCsv, err = ConfigureDataStorage(lCfg.DataDbType, lCfg.DataDbHost, lCfg.DataDbPort, "7",
+-		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, 1); err != nil {
++		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, ""); err != nil {
+ 		t.Fatal("Error on dataDb connection: ", err.Error())
+ 	}
+ 	if dataDbStor, err = ConfigureDataStorage(lCfg.DataDbType, lCfg.DataDbHost, lCfg.DataDbPort, "8",
+-		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, 1); err != nil {
++		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, ""); err != nil {
+ 		t.Fatal("Error on dataDb connection: ", err.Error())
+ 	}
+ 	if dataDbApier, err = ConfigureDataStorage(lCfg.DataDbType, lCfg.DataDbHost, lCfg.DataDbPort, "9",
+-		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, 1); err != nil {
++		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, ""); err != nil {
+ 		t.Fatal("Error on dataDb connection: ", err.Error())
+ 	}
+-	for _, db := range []Storage{dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB(), dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB()} {
++	for _, db := range []Storage{dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB(),
++		dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB()} {
+ 		if err = db.Flush(""); err != nil {
+ 			t.Fatal("Error when flushing datadb")
+ 		}
+diff --git a/engine/onstor_it_test.go b/engine/onstor_it_test.go
+index 47c2d3fc0..eac6b831e 100644
+--- a/engine/onstor_it_test.go
++++ b/engine/onstor_it_test.go
+@@ -98,7 +98,7 @@ var sTestsOnStorIT = []func(t *testing.T){
+ func TestOnStorITRedisConnect(t *testing.T) {
+ 	cfg, _ := config.NewDefaultCGRConfig()
+ 	rdsITdb, err = NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 4,
+-		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
++		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, "")
+ 	if err != nil {
+ 		t.Fatal("Could not connect to Redis", err.Error())
+ 	}
+@@ -121,7 +121,7 @@ func TestOnStorITMongoConnect(t *testing.T) {
+ 	}
+ 	if mgoITdb, err = NewMongoStorage(mgoITCfg.StorDBHost, mgoITCfg.StorDBPort,
+ 		mgoITCfg.StorDBName, mgoITCfg.StorDBUser, mgoITCfg.StorDBPass,
+-		utils.StorDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize); err != nil {
++		utils.StorDB, nil, mgoITCfg.CacheCfg()); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	onStorCfg = mgoITCfg.StorDBName
+diff --git a/engine/storage_mongo_datadb.go b/engine/storage_mongo_datadb.go
+index 9f59391fe..29848522e 100755
+--- a/engine/storage_mongo_datadb.go
++++ b/engine/storage_mongo_datadb.go
+@@ -127,14 +127,13 @@ func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes
+ }
+ 
+ type MongoStorage struct {
+-	session         *mgo.Session
+-	db              string
+-	storageType     string // datadb, stordb
+-	ms              Marshaler
+-	cacheCfg        config.CacheConfig
+-	loadHistorySize int
+-	cdrsIndexes     []string
+-	cnter           *utils.Counter
++	session     *mgo.Session
++	db          string
++	storageType string // datadb, stordb
++	ms          Marshaler
++	cacheCfg    config.CacheConfig
++	cdrsIndexes []string
++	cnter       *utils.Counter
+ }
+ 
+ func (ms *MongoStorage) conn(col string) (*mgo.Session, *mgo.Collection) {
+diff --git a/engine/storage_redis.go b/engine/storage_redis.go
+index 1dae94978..ce3482d2e 100755
+--- a/engine/storage_redis.go
++++ b/engine/storage_redis.go
+@@ -32,17 +32,19 @@ import (
+ 	"github.com/cgrates/cgrates/utils"
+ 	"github.com/mediocregopher/radix.v2/pool"
+ 	"github.com/mediocregopher/radix.v2/redis"
++	"github.com/mediocregopher/radix.v2/sentinel"
+ )
+ 
+ type RedisStorage struct {
+-	dbPool          *pool.Pool
+-	maxConns        int
+-	ms              Marshaler
+-	cacheCfg        config.CacheConfig
+-	loadHistorySize int
++	dbPool         *pool.Pool
++	maxConns       int
++	ms             Marshaler
++	cacheCfg       config.CacheConfig
++	sentinelClient *sentinel.Client
++	sentinelName   string
+ }
+ 
+-func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns int, cacheCfg config.CacheConfig, loadHistorySize int) (*RedisStorage, error) {
++func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns int, cacheCfg config.CacheConfig, sentinelName string) (*RedisStorage, error) {
+ 	df := func(network, addr string) (*redis.Client, error) {
+ 		client, err := redis.Dial(network, addr)
+ 		if err != nil {
+@@ -62,10 +64,7 @@ func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns i
+ 		}
+ 		return client, nil
+ 	}
+-	p, err := pool.NewCustom("tcp", address, maxConns, df)
+-	if err != nil {
+-		return nil, err
+-	}
++
+ 	var mrshler Marshaler
+ 	if mrshlerStr == utils.MSGPACK {
+ 		mrshler = NewCodecMsgpackMarshaler()
+@@ -74,13 +73,38 @@ func NewRedisStorage(address string, db int, pass, mrshlerStr string, maxConns i
+ 	} else {
+ 		return nil, fmt.Errorf("Unsupported marshaler: %v", mrshlerStr)
+ 	}
+-	return &RedisStorage{dbPool: p, maxConns: maxConns, ms: mrshler,
+-		cacheCfg: cacheCfg, loadHistorySize: loadHistorySize}, nil
++
++	if sentinelName != "" {
++		client, err := sentinel.NewClientCustom("tcp", address, maxConns, df, sentinelName)
++		if err != nil {
++			return nil, err
++		}
++		return &RedisStorage{maxConns: maxConns, ms: mrshler,
++			cacheCfg: cacheCfg, sentinelClient: client,
++			sentinelName: sentinelName}, nil
++	} else {
++		p, err := pool.NewCustom("tcp", address, maxConns, df)
++		if err != nil {
++			return nil, err
++		}
++		return &RedisStorage{dbPool: p, maxConns: maxConns,
++			ms: mrshler, cacheCfg: cacheCfg}, nil
++	}
+ }
+ 
+ // This CMD function get a connection from the pool.
+ // Handles automatic failover in case of network disconnects
+ func (rs *RedisStorage) Cmd(cmd string, args ...interface{}) *redis.Resp {
++	if rs.sentinelName != "" {
++		conn, err := rs.sentinelClient.GetMaster(rs.sentinelName)
++		if err != nil {
++			return redis.NewResp(err)
++		}
++		result := conn.Cmd(cmd, args...)
++		rs.sentinelClient.PutMaster(rs.sentinelName, conn)
++		return result
++	}
++
+ 	c1, err := rs.dbPool.Get()
+ 	if err != nil {
+ 		return redis.NewResp(err)
+diff --git a/engine/storage_utils.go b/engine/storage_utils.go
+index ef411d85d..1789b7d1f 100755
+--- a/engine/storage_utils.go
++++ b/engine/storage_utils.go
+@@ -30,7 +30,7 @@ import (
+ 
+ // Various helpers to deal with database
+ 
+-func ConfigureDataStorage(db_type, host, port, name, user, pass, marshaler string, cacheCfg config.CacheConfig, loadHistorySize int) (dm *DataManager, err error) {
++func ConfigureDataStorage(db_type, host, port, name, user, pass, marshaler string, cacheCfg config.CacheConfig, sentinelName string) (dm *DataManager, err error) {
+ 	var d DataDB
+ 	switch db_type {
+ 	case utils.REDIS:
+@@ -43,10 +43,10 @@ func ConfigureDataStorage(db_type, host, port, name, user, pass, marshaler strin
+ 		if port != "" {
+ 			host += ":" + port
+ 		}
+-		d, err = NewRedisStorage(host, db_nb, pass, marshaler, utils.REDIS_MAX_CONNS, cacheCfg, loadHistorySize)
++		d, err = NewRedisStorage(host, db_nb, pass, marshaler, utils.REDIS_MAX_CONNS, cacheCfg, sentinelName)
+ 		dm = NewDataManager(d.(DataDB))
+ 	case utils.MONGO:
+-		d, err = NewMongoStorage(host, port, name, user, pass, utils.DataDB, nil, cacheCfg, loadHistorySize)
++		d, err = NewMongoStorage(host, port, name, user, pass, utils.DataDB, nil, cacheCfg)
+ 		dm = NewDataManager(d.(DataDB))
+ 	default:
+ 		err = errors.New(fmt.Sprintf("Unknown db '%s' valid options are '%s' or '%s'",
+@@ -62,7 +62,7 @@ func ConfigureStorStorage(db_type, host, port, name, user, pass, marshaler strin
+ 	var d Storage
+ 	switch db_type {
+ 	case utils.MONGO:
+-		d, err = NewMongoStorage(host, port, name, user, pass, utils.StorDB, cdrsIndexes, nil, 1)
++		d, err = NewMongoStorage(host, port, name, user, pass, utils.StorDB, cdrsIndexes, nil)
+ 	case utils.POSTGRES:
+ 		d, err = NewPostgresStorage(host, port, name, user, pass, maxConn, maxIdleConn, connMaxLifetime)
+ 	case utils.MYSQL:
+diff --git a/engine/stordb_it_test.go b/engine/stordb_it_test.go
+index cf4c5b0b7..b6ec24dc7 100755
+--- a/engine/stordb_it_test.go
++++ b/engine/stordb_it_test.go
+@@ -101,7 +101,7 @@ func TestStorDBitMongo(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	if storDB, err = NewMongoStorage(cfg.StorDBHost, cfg.StorDBPort, cfg.StorDBName,
+-		cfg.StorDBUser, cfg.StorDBPass, utils.StorDB, cfg.StorDBCDRSIndexes, nil, cfg.LoadHistorySize); err != nil {
++		cfg.StorDBUser, cfg.StorDBPass, utils.StorDB, cfg.StorDBCDRSIndexes, nil); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	storDB2ndDBname = "todo"
+diff --git a/engine/versions_it_test.go b/engine/versions_it_test.go
+index 2d1eeecb5..99a391b98 100644
+--- a/engine/versions_it_test.go
++++ b/engine/versions_it_test.go
+@@ -20,19 +20,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
+ package engine
+ 
+ import (
+-	"flag"
+-	"github.com/cgrates/cgrates/config"
+-	"github.com/cgrates/cgrates/utils"
+ 	"log"
+ 	"path"
+ 	"testing"
++
++	"github.com/cgrates/cgrates/config"
++	"github.com/cgrates/cgrates/utils"
+ )
+ 
+ var (
+-	storageDb       Storage
+-	dm3             *DataManager
+-	dbtype          string
+-	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
++	storageDb Storage
++	dm3       *DataManager
++	dbtype    string
+ )
+ 
+ var sTestsITVersions = []func(t *testing.T){
+@@ -48,7 +47,7 @@ func TestVersionsITMongo(t *testing.T) {
+ 	}
+ 	if dm3, err = ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost,
+ 		cfg.DataDbPort, cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass,
+-		cfg.DBDataEncoding, cfg.CacheCfg(), *loadHistorySize); err != nil {
++		cfg.DBDataEncoding, cfg.CacheCfg(), ""); err != nil {
+ 		log.Fatal(err)
+ 	}
+ 	storageDb, err = ConfigureStorStorage(cfg.StorDBType, cfg.StorDBHost,
+@@ -70,7 +69,7 @@ func TestVersionsITRedisMYSQL(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	dm3, err = ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
+-		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), *loadHistorySize)
++		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), "")
+ 	if err != nil {
+ 		log.Fatal(err)
+ 	}
+@@ -94,7 +93,7 @@ func TestVersionsITRedisPostgres(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	dm3, err = ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
+-		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), *loadHistorySize)
++		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), "")
+ 	if err != nil {
+ 		log.Fatal(err)
+ 	}
+diff --git a/general_tests/sentinel_it_test.go b/general_tests/sentinel_it_test.go
+new file mode 100755
+index 000000000..a7d0a6a58
+--- /dev/null
++++ b/general_tests/sentinel_it_test.go
+@@ -0,0 +1,193 @@
++// +build integration
++
++/*
++Real-time Online/Offline Charging System (OCS) for Telecom & ISP environments
++Copyright (C) ITsysCOM GmbH
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program.  If not, see <http://www.gnu.org/licenses/>
++*/
++
++package general_tests
++
++import (
++	"flag"
++	"fmt"
++	"net/rpc"
++	"net/rpc/jsonrpc"
++	"os/exec"
++	"path"
++	"reflect"
++	"testing"
++
++	"github.com/cgrates/cgrates/config"
++	"github.com/cgrates/cgrates/engine"
++	"github.com/cgrates/cgrates/utils"
++)
++
++var (
++	node1ConfigPath                    = path.Join(*dataDir, "sentinel", "node1.conf")
++	node2ConfigPath                    = path.Join(*dataDir, "sentinel", "node2.conf")
++	sentinelConfigPath                 = path.Join(*dataDir, "sentinel", "sentinel1.conf")
++	engineConfigPath                   = path.Join(*dataDir, "conf", "samples", "tutsentinel")
++	sentinelConfig                     *config.CGRConfig
++	sentinelRPC                        *rpc.Client
++	node1exec, node2exec, sentinelexec *exec.Cmd
++	redisSentinel                      = flag.Bool("redis_sentinel", false, "Run tests with redis sentinel")
++)
++
++var sTestsRds = []func(t *testing.T){
++	testRedisSentinelStartNodes,
++	testRedisSentinelInitConfig,
++	testRedisSentinelFlushDb,
++	testRedisSentinelStartEngine,
++	testRedisSentinelRPCCon,
++	testRedisSentinelSetGetAttribute,
++	testRedisSentinelShutDownNode1,
++	testRedisSentinelGetAttrAfterFailover,
++	testRedisSentinelKillEngine,
++}
++
++// Before running these tests make sure node1.conf, node2.conf, sentinel1.conf are the next
++// Node1 will be master and start at port 16379
++// Node2 will be slave of node1 and start at port 16380
++// Sentinel will be started at port 16381 and will watch Node1
++func TestRedisSentinel(t *testing.T) {
++	if !*redisSentinel {
++		return
++	}
++	for _, stest := range sTestsRds {
++		t.Run("", stest)
++	}
++}
++
++func testRedisSentinelStartNodes(t *testing.T) {
++	node1exec = exec.Command("redis-server", node1ConfigPath)
++	if err := node1exec.Start(); err != nil {
++		t.Error(err)
++	}
++	node2exec = exec.Command("redis-server", node2ConfigPath)
++	if err := node2exec.Start(); err != nil {
++		t.Error(err)
++	}
++	sentinelexec = exec.Command("redis-sentinel", sentinelConfigPath)
++	if err := sentinelexec.Start(); err != nil {
++		t.Error(err)
++	}
++}
++
++func testRedisSentinelInitConfig(t *testing.T) {
++	var err error
++	sentinelConfig, err = config.NewCGRConfigFromFolder(engineConfigPath)
++	if err != nil {
++		t.Error(err)
++	}
++	sentinelConfig.DataFolderPath = *dataDir // Share DataFolderPath through config towards StoreDb for Flush()
++	config.SetCgrConfig(sentinelConfig)
++}
++
++func testRedisSentinelFlushDb(t *testing.T) {
++	if err := engine.InitDataDb(sentinelConfig); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func testRedisSentinelStartEngine(t *testing.T) {
++	if _, err := engine.StopStartEngine(engineConfigPath, 2000); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func testRedisSentinelRPCCon(t *testing.T) {
++	var err error
++	sentinelRPC, err = jsonrpc.Dial("tcp", sentinelConfig.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
++	if err != nil {
++		t.Fatal(err)
++	}
++}
++
++func testRedisSentinelSetGetAttribute(t *testing.T) {
++	alsPrf := &engine.AttributeProfile{
++		Tenant:    "cgrates.org",
++		ID:        "ApierTest",
++		Contexts:  []string{utils.MetaSessionS, utils.MetaCDRs},
++		FilterIDs: []string{"*string:Account:1001"},
++		Attributes: []*engine.Attribute{
++			&engine.Attribute{
++				FieldName:  utils.Subject,
++				Initial:    utils.ANY,
++				Substitute: config.NewRSRParsersMustCompile("1001", true),
++				Append:     true,
++			},
++		},
++		Weight: 20,
++	}
++	alsPrf.Compile()
++	var result string
++	if err := sentinelRPC.Call("ApierV1.SetAttributeProfile", alsPrf, &result); err != nil {
++		t.Error(err)
++	} else if result != utils.OK {
++		t.Error("Unexpected reply returned", result)
++	}
++	var reply *engine.AttributeProfile
++	if err := sentinelRPC.Call("ApierV1.GetAttributeProfile",
++		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
++		t.Error(err)
++	}
++	reply.Compile()
++	if !reflect.DeepEqual(alsPrf, reply) {
++		t.Errorf("Expecting : %+v, received: %+v", alsPrf, reply)
++	}
++}
++
++// Here we kill node1 and sentinel will do failover and promote node2 to be master
++func testRedisSentinelShutDownNode1(t *testing.T) {
++	if err := node1exec.Process.Kill(); err != nil { // Kill the master
++		t.Error(err)
++	}
++}
++
++// After we kill node1 check the data if was replicated in node2
++func testRedisSentinelGetAttrAfterFailover(t *testing.T) {
++	alsPrf := &engine.AttributeProfile{
++		Tenant:    "cgrates.org",
++		ID:        "ApierTest",
++		Contexts:  []string{utils.MetaSessionS, utils.MetaCDRs},
++		FilterIDs: []string{"*string:Account:1001"},
++		Attributes: []*engine.Attribute{
++			&engine.Attribute{
++				FieldName:  utils.Subject,
++				Initial:    utils.ANY,
++				Substitute: config.NewRSRParsersMustCompile("1001", true),
++				Append:     true,
++			},
++		},
++		Weight: 20,
++	}
++	alsPrf.Compile()
++	var reply *engine.AttributeProfile
++	if err := sentinelRPC.Call("ApierV1.GetAttributeProfile",
++		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
++		t.Error(err)
++	}
++	reply.Compile()
++	if !reflect.DeepEqual(alsPrf, reply) {
++		t.Errorf("Expecting : %+v, received: %+v", alsPrf, reply)
++	}
++}
++
++func testRedisSentinelKillEngine(t *testing.T) {
++	if err := engine.KillEngine(2000); err != nil {
++		t.Error(err)
++	}
++}
+
+From a27a0d14502b02722d9e50cd187c72cd29acb7a0 Mon Sep 17 00:00:00 2001
+From: root <admin@powerpbx.org>
+Date: Fri, 11 Jan 2019 15:46:39 -0800
+Subject: [PATCH 2/2] Minor fix in cgr-migrator
+
+---
+ cmd/cgr-migrator/cgr-migrator.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/cmd/cgr-migrator/cgr-migrator.go b/cmd/cgr-migrator/cgr-migrator.go
+index 0b0b181a6..4b72a2366 100755
+--- a/cmd/cgr-migrator/cgr-migrator.go
++++ b/cmd/cgr-migrator/cgr-migrator.go
+@@ -136,7 +136,7 @@ func main() {
+ 
+ 	var dmIN *engine.DataManager
+ 	dmIN, _ = engine.ConfigureDataStorage(*inDataDBType, *inDataDBHost, *inDataDBPort,
+-		*inDataDBName, *inDataDBUser, *inDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), mgrCfg.CacheCfg(), *inDataDbSentinel)
++		*inDataDBName, *inDataDBUser, *inDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *inDataDbSentinel)
+ 	instorDB, err := engine.ConfigureStorStorage(*inStorDBType, *inStorDBHost, *inStorDBPort, *inStorDBName, *inStorDBUser, *inStorDBPass, *inDBDataEncoding,
+ 		config.CgrConfig().StorDBMaxOpenConns, config.CgrConfig().StorDBMaxIdleConns, config.CgrConfig().StorDBConnMaxLifetime, config.CgrConfig().StorDBCDRSIndexes)
+ 	if err != nil {
