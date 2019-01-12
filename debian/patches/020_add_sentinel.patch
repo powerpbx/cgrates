@@ -614,6 +614,15 @@ Index: cgrates/engine/storage_utils.go
  	case utils.POSTGRES:
  		d, err = NewPostgresStorage(host, port, name, user, pass, maxConn, maxIdleConn, connMaxLifetime)
  	case utils.MYSQL:
+@@ -85,7 +85,7 @@ func ConfigureLoadStorage(db_type, host,
+ 	case utils.MYSQL:
+ 		d, err = NewMySQLStorage(host, port, name, user, pass, maxConn, maxIdleConn, connMaxLifetime)
+ 	case utils.MONGO:
+-		d, err = NewMongoStorage(host, port, name, user, pass, utils.StorDB, cdrsIndexes, nil, 1)
++		d, err = NewMongoStorage(host, port, name, user, pass, utils.StorDB, cdrsIndexes, nil)
+ 	default:
+ 		err = errors.New(fmt.Sprintf("Unknown db '%s' valid options are [%s, %s, %s]",
+ 			db_type, utils.MYSQL, utils.MONGO, utils.POSTGRES))
 @@ -104,7 +104,7 @@ func ConfigureCdrStorage(db_type, host,
  	case utils.MYSQL:
  		d, err = NewMySQLStorage(host, port, name, user, pass, maxConn, maxIdleConn, connMaxLifetime)
@@ -885,3 +894,22 @@ Index: cgrates/general_tests/sentinel_it_test.go
 +		t.Error(err)
 +	}
 +}
+Index: cgrates/engine/calldesc.go
+===================================================================
+--- cgrates.orig/engine/calldesc.go
++++ cgrates/engine/calldesc.go
+@@ -53,12 +53,12 @@ func init() {
+ 		}
+ 		data, _ = NewMapStorage()
+ 	case utils.MONGO:
+-		data, err = NewMongoStorage("127.0.0.1", "27017", "cgrates_data_test", "", "", utils.DataDB, nil, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
++		data, err = NewMongoStorage("127.0.0.1", "27017", "cgrates_data_test", "", "", utils.DataDB, nil, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}})
+ 		if err != nil {
+ 			log.Fatal(err)
+ 		}
+ 	case utils.REDIS:
+-		data, _ = NewRedisStorage("127.0.0.1:6379", 12, "", utils.MSGPACK, utils.REDIS_MAX_CONNS, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
++		data, _ = NewRedisStorage("127.0.0.1:6379", 12, "", utils.MSGPACK, utils.REDIS_MAX_CONNS, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}})
+ 		if err != nil {
+ 			log.Fatal(err)
+ 		}
