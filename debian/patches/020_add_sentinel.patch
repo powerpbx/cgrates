@@ -182,7 +182,7 @@ Index: cgrates/cmd/cgr-tester/cgr-tester.go
  	datadb_user     = flag.String("datadb_user", cgrConfig.DataDbUser, "The DataDb user to sign in as.")
  	datadb_pass     = flag.String("datadb_pass", cgrConfig.DataDbPass, "The DataDb user's password.")
  	dbdata_encoding = flag.String("dbdata_encoding", cgrConfig.DBDataEncoding, "The encoding used to store object data in strings.")
-+	redis_sentinel  = flag.String("redis_sentinel", cgrConfig.DataDbSentinelName, "The name of redis sentinel")
++	dbRedisSentinel  = flag.String("redis_sentinel", cgrConfig.DataDbSentinelName, "The name of redis sentinel")
  	raterAddress    = flag.String("rater_address", "trunks.ivozprovider.local:2012", "Rater address for remote tests. Empty for internal rater.")
  	tor             = flag.String("tor", utils.VOICE, "The type of record to use in queries.")
  	category        = flag.String("category", "call", "The Record category to test.")
@@ -894,22 +894,15 @@ Index: cgrates/general_tests/sentinel_it_test.go
 +		t.Error(err)
 +	}
 +}
-Index: cgrates/engine/calldesc.go
+Index: cgrates/glide.yaml
 ===================================================================
---- cgrates.orig/engine/calldesc.go
-+++ cgrates/engine/calldesc.go
-@@ -53,12 +53,12 @@ func init() {
- 		}
- 		data, _ = NewMapStorage()
- 	case utils.MONGO:
--		data, err = NewMongoStorage("127.0.0.1", "27017", "cgrates_data_test", "", "", utils.DataDB, nil, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
-+		data, err = NewMongoStorage("127.0.0.1", "27017", "cgrates_data_test", "", "", utils.DataDB, nil, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}})
- 		if err != nil {
- 			log.Fatal(err)
- 		}
- 	case utils.REDIS:
--		data, _ = NewRedisStorage("127.0.0.1:6379", 12, "", utils.MSGPACK, utils.REDIS_MAX_CONNS, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
-+		data, _ = NewRedisStorage("127.0.0.1:6379", 12, "", utils.MSGPACK, utils.REDIS_MAX_CONNS, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}})
- 		if err != nil {
- 			log.Fatal(err)
- 		}
+--- cgrates.orig/glide.yaml
++++ cgrates/glide.yaml
+@@ -23,6 +23,7 @@ import:
+   subpackages:
+   - pool
+   - redis
++  - sentinel
+ - package: github.com/peterh/liner
+ - package: github.com/ugorji/go
+   subpackages:
