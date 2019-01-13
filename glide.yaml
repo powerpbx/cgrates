@@ -23,6 +23,7 @@ import:
   subpackages:
   - pool
   - redis
+  - sentinel
 - package: github.com/peterh/liner
 - package: github.com/ugorji/go
   subpackages:

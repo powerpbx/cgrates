@@ -894,18 +894,6 @@ Index: cgrates/general_tests/sentinel_it_test.go
 +		t.Error(err)
 +	}
 +}
-Index: cgrates/glide.yaml
-===================================================================
---- cgrates.orig/glide.yaml
-+++ cgrates/glide.yaml
-@@ -23,6 +23,7 @@ import:
-   subpackages:
-   - pool
-   - redis
-+  - sentinel
- - package: github.com/peterh/liner
- - package: github.com/ugorji/go
-   subpackages:
 Index: cgrates/engine/calldesc.go
 ===================================================================
 --- cgrates.orig/engine/calldesc.go
