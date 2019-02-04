@@ -33,21 +33,23 @@ import (
 )
 
 var (
-	datadb_type = flag.String("datadb_type", config.CgrConfig().DataDbType, "The type of the DataDb database <*redis|*mongo>")
-	datadb_host = flag.String("datadb_host", utils.MetaDynamic, "The DataDb host to connect to.")
-	datadb_port = flag.String("datadb_port", utils.MetaDynamic, "The DataDb port to bind to.")
-	datadb_name = flag.String("datadb_name", utils.MetaDynamic, "The name/number of the DataDb to connect to.")
-	datadb_user = flag.String("datadb_user", utils.MetaDynamic, "The DataDb user to sign in as.")
-	datadb_pass = flag.String("datadb_passwd", utils.MetaDynamic, "The DataDb user's password.")
+	datadb_type = flag.String("datadb_type", "*redis", "The type of the DataDb database <*redis|*mongo>")
+	datadb_host = flag.String("datadb_host", "data.ivozprovider.local", "The DataDb host to connect to.")
+	datadb_port = flag.String("datadb_port", "6379", "The DataDb port to bind to.")
+	datadb_name = flag.String("datadb_name", "10", "The name/number of the DataDb to connect to.")
+	datadb_user = flag.String("datadb_user", "cgrates", "The DataDb user to sign in as.")
+	datadb_pass = flag.String("datadb_passwd", "", "The DataDb user's password.")
 
-	stor_db_type = flag.String("stordb_type", config.CgrConfig().StorDBType, "The type of the storDb database <*mysql|*postgres|*mongo>")
-	stor_db_host = flag.String("stordb_host", utils.MetaDynamic, "The storDb host to connect to.")
-	stor_db_port = flag.String("stordb_port", utils.MetaDynamic, "The storDb port to bind to.")
-	stor_db_name = flag.String("stordb_name", utils.MetaDynamic, "The name/number of the storDb to connect to.")
-	stor_db_user = flag.String("stordb_user", utils.MetaDynamic, "The storDb user to sign in as.")
-	stor_db_pass = flag.String("stordb_passwd", utils.MetaDynamic, "The storDb user's password.")
+	stor_db_type = flag.String("stordb_type", "*mysql", "The type of the storDb database <*mysql|*postgres|*mongo>")
+	stor_db_host = flag.String("stordb_host", "data.ivozprovider.local", "The storDb host to connect to.")
+	stor_db_port = flag.String("stordb_port", "3306", "The storDb port to bind to.")
+	stor_db_name = flag.String("stordb_name", "ivozprovider", "The name/number of the storDb to connect to.")
+	stor_db_user = flag.String("stordb_user", "kamailio", "The storDb user to sign in as.")
+	stor_db_pass = flag.String("stordb_passwd", "ironsecret", "The storDb user's password.")
 
 	dbdata_encoding = flag.String("dbdata_encoding", config.CgrConfig().DBDataEncoding, "The encoding used to store object data in strings")
+	dbRedisSentinel = flag.String("redis_sentinel", config.CgrConfig().DataDbSentinelName,
+		"The name of redis sentinel")
 
 	flush           = flag.Bool("flushdb", false, "Flush the database before importing")
 	tpid            = flag.String("tpid", "", "The tariff plan id from the database")
@@ -60,14 +62,15 @@ var (
 	fromStorDb      = flag.Bool("from_stordb", false, "Load the tariff plan from storDb to dataDb")
 	toStorDb        = flag.Bool("to_stordb", false, "Import the tariff plan from files to storDb")
 	rpcEncoding     = flag.String("rpc_encoding", "json", "RPC encoding used <gob|json>")
-	ralsAddress     = flag.String("rals", config.CgrConfig().RPCJSONListen, "Rater service to contact for cache reloads, empty to disable automatic cache reloads")
-	cdrstatsAddress = flag.String("cdrstats", config.CgrConfig().RPCJSONListen, "CDRStats service to contact for data reloads, empty to disable automatic data reloads")
-	usersAddress    = flag.String("users", config.CgrConfig().RPCJSONListen, "Users service to contact for data reloads, empty to disable automatic data reloads")
+	ralsAddress     = flag.String("rals", "trunks.ivozprovider.local:2012", "Rater service to contact for cache reloads, empty to disable automatic cache reloads")
+	cdrstatsAddress = flag.String("cdrstats", "trunks.ivozprovider.local:2012", "CDRStats service to contact for data reloads, empty to disable automatic data reloads")
+	usersAddress    = flag.String("users", "trunks.ivozprovider.local:2012", "Users service to contact for data reloads, empty to disable automatic data reloads")
 	runId           = flag.String("runid", "", "Uniquely identify an import/load, postpended to some automatic fields")
 	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
-	timezone        = flag.String("timezone", config.CgrConfig().DefaultTimezone, `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
+	timezone        = flag.String("timezone", "UTC", `Timezone for timestamps where not specified <""|UTC|Local|$IANA_TZ_DB>`)
 	disable_reverse = flag.Bool("disable_reverse_mappings", false, "Will disable reverse mappings rebuilding")
 	remove          = flag.Bool("remove", false, "Will remove any data from db that matches data files")
+	cleanup         = flag.Bool("cleanup", false, "Remove unreferenced rating plans and rating profiles")
 )
 
 func main() {
@@ -98,7 +101,7 @@ func main() {
 
 	if !*toStorDb {
 		dm, errDataDB = engine.ConfigureDataStorage(*datadb_type, *datadb_host, *datadb_port, *datadb_name,
-			*datadb_user, *datadb_pass, *dbdata_encoding, config.CgrConfig().CacheCfg(), *loadHistorySize)
+			*datadb_user, *datadb_pass, *dbdata_encoding, config.CgrConfig().CacheCfg(), *dbRedisSentinel)
 	}
 	if *fromStorDb || *toStorDb {
 		storDb, errStorDb = engine.ConfigureLoadStorage(*stor_db_type, *stor_db_host, *stor_db_port, *stor_db_name, *stor_db_user, *stor_db_pass, *dbdata_encoding,
@@ -137,6 +140,9 @@ func main() {
 		}
 	}
 	if *fromStorDb { // Load Tariff Plan from storDb into dataDb
+		if *tpid == "" {
+			log.Fatal("TPid required, please define it via *-tpid* command argument.")
+		}
 		loader = storDb
 	} else { // Default load from csv files to dataDb
 		/*for fn, v := range engine.FileValidators {
@@ -182,10 +188,21 @@ func main() {
 	if *validate {
 		if !tpReader.IsValid() {
 			return
+		} else {
+			log.Println("Validation ended successfully")
 		}
 	}
 	if *dryRun { // We were just asked to parse the data, not saving it
 		return
+	}
+	if *cleanup {
+		if err := tpReader.CleanDataDb(*tpid); err != nil {
+			log.Fatal("Error cleaning up unused rating plans/profiles")
+			return
+		} else {
+			*flush = true // Cleanup requires flushing cache
+			log.Println("Cleanup ended succesfully")
+		}
 	}
 	if *ralsAddress != "" { // Init connection to rater so we can reload it's data
 		if rater, err = rpcclient.NewRpcClient("tcp", *ralsAddress, 3, 3,
@@ -261,7 +278,9 @@ func main() {
 			reply := ""
 
 			// Reload cache first since actions could be calling info from within
-			if *verbose {
+			if *flush {
+				log.Print("Flushing cache")
+			} else {
 				log.Print("Reloading cache")
 			}
 			if err = rater.Call("ApierV1.ReloadCache", utils.AttrReloadCache{ArgsCache: utils.ArgsCache{

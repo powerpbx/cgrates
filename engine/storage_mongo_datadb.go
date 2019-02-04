@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"errors"
 	"io/ioutil"
 	"strings"
 	"time"
@@ -97,7 +98,7 @@ var (
 	CostLow            = strings.ToLower(utils.COST)
 )
 
-func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes []string, cacheCfg config.CacheConfig, loadHistorySize int) (ms *MongoStorage, err error) {
+func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes []string, cacheCfg config.CacheConfig) (ms *MongoStorage, err error) {
 	url := host
 	if port != "" {
 		url += ":" + port
@@ -114,7 +115,7 @@ func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes
 	}
 	session.SetMode(mgo.Strong, true)
 	ms = &MongoStorage{db: db, session: session, storageType: storageType, ms: NewCodecMsgpackMarshaler(),
-		cacheCfg: cacheCfg, loadHistorySize: loadHistorySize, cdrsIndexes: cdrsIndexes}
+		cacheCfg: cacheCfg, cdrsIndexes: cdrsIndexes}
 	if cNames, err := session.DB(ms.db).CollectionNames(); err != nil {
 		return nil, err
 	} else if len(cNames) == 0 { // create indexes only if database is empty
@@ -132,7 +133,6 @@ type MongoStorage struct {
 	storageType     string // datadb, stordb
 	ms              Marshaler
 	cacheCfg        config.CacheConfig
-	loadHistorySize int
 	cdrsIndexes     []string
 	cnter           *utils.Counter
 }
@@ -375,6 +375,10 @@ func (ms *MongoStorage) DB() *mgo.Database {
 func (ms *MongoStorage) SelectDatabase(dbName string) (err error) {
 	ms.db = dbName
 	return
+}
+
+func (rs *MongoStorage) RemoveKeys(keys []string) (err error) {
+	return errors.New("Not implemented yet")
 }
 
 func (ms *MongoStorage) RebuildReverseForPrefix(prefix string) (err error) {

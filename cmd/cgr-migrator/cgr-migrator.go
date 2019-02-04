@@ -47,12 +47,12 @@ var (
 	inDataDBUser = flag.String("datadb_user", utils.MetaDynamic, "The DataDb user to sign in as.")
 	inDataDBPass = flag.String("datadb_passwd", utils.MetaDynamic, "The DataDb user's password.")
 
-	inStorDBType = flag.String("stordb_type", config.CgrConfig().StorDBType, "The type of the StorDB Database <*mysql|*postgres>")
-	inStorDBHost = flag.String("stordb_host", utils.MetaDynamic, "The StorDB host to connect to.")
-	inStorDBPort = flag.String("stordb_port", utils.MetaDynamic, "The StorDB port to bind to.")
-	inStorDBName = flag.String("stordb_name", utils.MetaDynamic, "The name/number of the StorDB to connect to.")
-	inStorDBUser = flag.String("stordb_user", utils.MetaDynamic, "The StorDB user to sign in as.")
-	inStorDBPass = flag.String("stordb_passwd", utils.MetaDynamic, "The StorDB user's password.")
+	inStorDBType = flag.String("stordb_type", "*mysql", "The type of the StorDB Database <*mysql|*postgres>")
+	inStorDBHost = flag.String("stordb_host", "data.ivozprovider.local", "The StorDB host to connect to.")
+	inStorDBPort = flag.String("stordb_port", "3306", "The StorDB port to bind to.")
+	inStorDBName = flag.String("stordb_name", "ivozprovider", "The name/number of the StorDB to connect to.")
+	inStorDBUser = flag.String("stordb_user", "kamailio", "The StorDB user to sign in as.")
+	inStorDBPass = flag.String("stordb_passwd", "ironsecret", "The StorDB user's password.")
 
 	outDataDBType = flag.String("out_datadb_type", utils.MetaDynamic, "The type of the DataDb Database <*redis|*mongo>")
 	outDataDBHost = flag.String("out_datadb_host", utils.MetaDynamic, "The DataDb host to connect to.")
@@ -68,13 +68,17 @@ var (
 	outStorDBUser = flag.String("out_stordb_user", utils.MetaDynamic, "The StorDB user to sign in as.")
 	outStorDBPass = flag.String("out_stordb_passwd", utils.MetaDynamic, "The StorDB user's password.")
 
-	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
-
 	datadb_versions = flag.Bool("datadb_versions", false, "Print DataDB versions")
 	stordb_versions = flag.Bool("stordb_versions", false, "Print StorDB versions")
 
 	dbDataEncoding   = flag.String("dbData_encoding", config.CgrConfig().DBDataEncoding, "The encoding used to store object Data in strings")
 	inDBDataEncoding = flag.String("in_dbData_encoding", "", "The encoding used to store object Data in strings")
+
+	inDataDBRedisSentinel = flag.String("redis_sentinel", config.CgrConfig().DataDbSentinelName,
+		"the name of redis sentinel")
+	outDataDBRedisSentinel = flag.String("out_redis_sentinel", utils.MetaDynamic,
+		"the name of redis sentinel")
+
 	dryRun           = flag.Bool("dry_run", false, "When true will not save loaded Data to DataDb but just parse it for consistency and errors.")
 	verbose          = flag.Bool("verbose", false, "Enable detailed verbose logging output")
 )
@@ -92,6 +96,8 @@ func main() {
 	*inDataDBUser = config.DBDefaults.DBUser(*inDataDBType, *inDataDBUser)
 	*inDataDBPass = config.DBDefaults.DBPass(*inDataDBType, *inDataDBPass)
 
+	*inDataDBRedisSentinel = config.DBDefaults.DBPass(*inDataDBType, *inDataDbRedisSentinel)
+
 	*inStorDBType = strings.TrimPrefix(*inStorDBType, "*")
 	*inStorDBHost = config.DBDefaults.DBHost(*inStorDBType, *inStorDBHost)
 	*inStorDBPort = config.DBDefaults.DBPort(*inStorDBType, *inStorDBPort)
@@ -106,6 +112,7 @@ func main() {
 		*outDataDBName = *inDataDBName
 		*outDataDBUser = *inDataDBUser
 		*outDataDBPass = *inDataDBPass
+		*outDataDBRedisSentinel = *inDataDBRedisSentinel
 	} else {
 		*outDataDBType = strings.TrimPrefix(*outDataDBType, "*")
 		*outDataDBHost = config.DBDefaults.DBHost(*outDataDBType, *outDataDBHost)
@@ -113,8 +120,8 @@ func main() {
 		*outDataDBName = config.DBDefaults.DBName(*outDataDBType, *outDataDBName)
 		*outDataDBUser = config.DBDefaults.DBUser(*outDataDBType, *outDataDBUser)
 		*outDataDBPass = config.DBDefaults.DBPass(*outDataDBType, *outDataDBPass)
+		*outDataDBRedisSentinel = config.DBDefaults.DBPass(*outDataDBType, *outDataDBRedisSentinel)
 	}
-
 	if *outStorDBType != utils.MetaDynamic {
 		*outStorDBType = strings.TrimPrefix(*outStorDBType, "*")
 		*outStorDBHost = config.DBDefaults.DBHost(*outStorDBType, *outStorDBHost)
@@ -126,7 +133,7 @@ func main() {
 
 	var dmIN *engine.DataManager
 	dmIN, _ = engine.ConfigureDataStorage(*inDataDBType, *inDataDBHost, *inDataDBPort,
-		*inDataDBName, *inDataDBUser, *inDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *loadHistorySize)
+		*inDataDBName, *inDataDBUser, *inDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *inDataDbSentinel)
 	instorDB, err := engine.ConfigureStorStorage(*inStorDBType, *inStorDBHost, *inStorDBPort, *inStorDBName, *inStorDBUser, *inStorDBPass, *inDBDataEncoding,
 		config.CgrConfig().StorDBMaxOpenConns, config.CgrConfig().StorDBMaxIdleConns, config.CgrConfig().StorDBConnMaxLifetime, config.CgrConfig().StorDBCDRSIndexes)
 	if err != nil {
@@ -134,8 +141,8 @@ func main() {
 	}
 	var dmOUT *engine.DataManager
 	dmOUT, _ = engine.ConfigureDataStorage(*outDataDBType, *outDataDBHost, *outDataDBPort,
-		*outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *loadHistorySize)
-	outDataDB, err := migrator.ConfigureV1DataStorage(*outDataDBType, *outDataDBHost, *outDataDBPort, *outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding)
+		*outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding, config.CgrConfig().CacheCfg(), *outDataDbSentinel)
+	outDataDB, err := migrator.ConfigureV1DataStorage(*outDataDBType, *outDataDBHost, *outDataDBPort, *outDataDBName, *outDataDBUser, *outDataDBPass, *dbDataEncoding, *outDataDbSentinel)
 	if err != nil {
 		log.Fatal(err)
 	}

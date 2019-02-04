@@ -402,11 +402,15 @@ func (self *CdrServer) rateCDR(cdr *CDR) ([]*CDR, error) {
 	if cdr.RequestType == utils.META_NONE {
 		return nil, nil
 	}
+
+	// search in sm_cost only for first rating of prepaid calls
+	isFirstRating := cdr.Cost == -1 && cdr.RunID == "*default"
+
 	cdr.ExtraInfo = "" // Clean previous ExtraInfo, useful when re-rating
 	var cdrsRated []*CDR
 	_, hasLastUsed := cdr.ExtraFields[utils.LastUsed]
 	if utils.IsSliceMember([]string{utils.META_PREPAID, utils.PREPAID}, cdr.RequestType) &&
-		(cdr.Usage != 0 || hasLastUsed) { // ToDo: Get rid of PREPAID as soon as we don't want to support it backwards
+		(cdr.Usage != 0 || hasLastUsed) && isFirstRating { // ToDo: Get rid of PREPAID as soon as we don't want to support it backwards
 		// Should be previously calculated and stored in DB
 		fib := utils.Fib()
 		var smCosts []*SMCost
@@ -506,8 +510,31 @@ func (self *CdrServer) replicateCDRs(cdrs []*CDR) (err error) {
 	return
 }
 
+func (self *CdrServer) refundCharges(cdr *CDR) error {
+	utils.Logger.Info(fmt.Sprintf("Refund %f to '%s:%s' [cgrid: %s]\n", cdr.Cost, cdr.Tenant, cdr.Account, cdr.CGRID))
+
+	accID := utils.AccountKey(cdr.Tenant, cdr.Account)
+	at := &ActionTiming{}
+	at.SetAccountIDs(utils.StringMap{accID: true})
+
+	a := &Action{
+		ActionType: "*topup",
+		Balance: &BalanceFilter{
+			ID:	 		utils.StringPointer("*default"),
+			Type:		utils.StringPointer("*monetary"),
+			Value:      &utils.ValueFormula{Static: cdr.Cost},
+		},
+	}
+	at.SetActions(Actions{a})
+	if err := at.Execute(nil, nil); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Called by rate/re-rate API, FixMe: deprecate it once new APIer structure is operational
-func (self *CdrServer) RateCDRs(cdrFltr *utils.CDRsFilter, sendToStats bool) error {
+func (self *CdrServer) RateCDRs(cdrFltr *utils.CDRsFilter, sendToStats bool, refund bool) error {
 	cdrs, _, err := self.cdrDb.GetCDRs(cdrFltr, false)
 	if err != nil {
 		return err
@@ -515,6 +542,12 @@ func (self *CdrServer) RateCDRs(cdrFltr *utils.CDRsFilter, sendToStats bool) err
 	for _, cdr := range cdrs {
 		if err := self.deriveRateStoreStatsReplicate(cdr, self.cgrCfg.CDRSStoreCdrs, sendToStats, len(self.cgrCfg.CDRSOnlineCDRExports) != 0); err != nil {
 			utils.Logger.Err(fmt.Sprintf("<CDRS> Processing CDR %+v, got error: %s", cdr, err.Error()))
+			continue
+		}
+		if refund && cdr.Cost > 0 {
+			if err := self.refundCharges(cdr) ; err != nil {
+				return err
+			}
 		}
 	}
 	return nil

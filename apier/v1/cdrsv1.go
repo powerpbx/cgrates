@@ -66,7 +66,7 @@ func (self *CdrsV1) RateCDRs(attrs utils.AttrRateCdrs, reply *string) error {
 	if err != nil {
 		return utils.NewErrServerError(err)
 	}
-	if err := self.CdrSrv.RateCDRs(cdrsFltr, attrs.SendToStats); err != nil {
+	if err := self.CdrSrv.RateCDRs(cdrsFltr, attrs.SendToStats, attrs.RerateRated); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*reply = utils.OK
