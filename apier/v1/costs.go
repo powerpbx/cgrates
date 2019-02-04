@@ -23,7 +23,6 @@ import (
 
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
-	"fmt"
 )
 
 type AttrGetCost struct {
@@ -33,7 +32,6 @@ type AttrGetCost struct {
 	AnswerTime  time.Time
 	Destination string
 	Usage       string
-	RatingPlanId       string
 }
 
 func (apier *ApierV1) GetCost(attrs AttrGetCost, ec *engine.EventCost) error {
@@ -41,74 +39,6 @@ func (apier *ApierV1) GetCost(attrs AttrGetCost, ec *engine.EventCost) error {
 	if err != nil {
 		return err
 	}
-	if len(attrs.RatingPlanId) > 0 {
-		if len(attrs.Subject) > 0 {
-			utils.Logger.Warning("Ignoring RatingPlanId as Subject given")
-		} else {
-			attrs.Subject = "simulator" // Temporary new account
-			reply := new(string)
-			utils.Logger.Info(fmt.Sprintf("Simulate call to %q for rating plan %q", attrs.Destination, attrs.RatingPlanId))
-
-			// Create temporary account
-			acc := utils.AttrSetAccount{
-				Tenant: attrs.Tenant,
-				Account: attrs.Subject,
-			}
-			if err := apier.SetAccount(acc, reply); err != nil {
-				utils.Logger.Err("Error creating temporary account")
-				return err
-			}
-
-			// Delete temporary account before leaving
-			defer func () {
-				utils.Logger.Info("Deleting temporary account")
-				// Remove temporary account
-				racc := utils.AttrRemoveAccount{
-					Tenant:  acc.Tenant,
-					Account: acc.Account,
-				}
-				if err := apier.RemoveAccount(racc, reply); err != nil {
-					utils.Logger.Err("Error deleting temporary account")
-					return
-				}
-			} ()
-
-			// Create ratingProfile for temporary account with given ratingPlan
-			rpf := AttrSetRatingProfile{
-				Tenant: attrs.Tenant,
-				Subject: attrs.Subject,
-				Direction: "*out",
-				Category: "call",
-				RatingPlanActivations: []*utils.TPRatingActivation{
-					&utils.TPRatingActivation{
-						ActivationTime: "1970-01-01T00:00:00Z",
-						RatingPlanId: attrs.RatingPlanId,
-					},
-				},
-			}
-			if err := apier.SetRatingProfile(rpf, reply); err != nil {
-				utils.Logger.Err("Error creating rating profile for temporary account")
-				return err
-			}
-
-			// Delete temporary ratingProfile before leaving
-			defer func () {
-				utils.Logger.Info("Deleting temporary rating profile")
-				// Remove temporary rating profile
-				rrpf := AttrRemoveRatingProfile{
-					Tenant:    rpf.Tenant,
-					Subject:   rpf.Subject,
-					Direction: rpf.Direction,
-					Category:  rpf.Category,
-				}
-				if err := apier.RemoveRatingProfile(rrpf, reply); err != nil {
-					utils.Logger.Err("Error deleting temporary rating profile")
-					return
-				}
-			} ()
-		}
-	}
-
 	cd := &engine.CallDescriptor{
 		Direction:     utils.OUT,
 		Category:      attrs.Category,

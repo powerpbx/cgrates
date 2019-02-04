@@ -42,7 +42,7 @@ var sTestsDMit = []func(t *testing.T){
 
 func TestDMitRedis(t *testing.T) {
 	cfg, _ := config.NewDefaultCGRConfig()
-	dataDB, err := NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 4, cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, "")
+	dataDB, err := NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 4, cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
 	if err != nil {
 		t.Fatal("Could not connect to Redis", err.Error())
 	}
@@ -60,7 +60,7 @@ func TestDMitMongo(t *testing.T) {
 	}
 	dataDB, err := NewMongoStorage(mgoITCfg.StorDBHost, mgoITCfg.StorDBPort,
 		mgoITCfg.StorDBName, mgoITCfg.StorDBUser, mgoITCfg.StorDBPass,
-		utils.StorDB, nil, mgoITCfg.CacheCfg())
+		utils.StorDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize)
 	if err != nil {
 		t.Fatal("Could not connect to Mongo", err.Error())
 	}

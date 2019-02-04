@@ -98,7 +98,7 @@ var sTestsOnStorIT = []func(t *testing.T){
 func TestOnStorITRedisConnect(t *testing.T) {
 	cfg, _ := config.NewDefaultCGRConfig()
 	rdsITdb, err = NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 4,
-		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, "")
+		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
 	if err != nil {
 		t.Fatal("Could not connect to Redis", err.Error())
 	}
@@ -121,7 +121,7 @@ func TestOnStorITMongoConnect(t *testing.T) {
 	}
 	if mgoITdb, err = NewMongoStorage(mgoITCfg.StorDBHost, mgoITCfg.StorDBPort,
 		mgoITCfg.StorDBName, mgoITCfg.StorDBUser, mgoITCfg.StorDBPass,
-		utils.StorDB, nil, mgoITCfg.CacheCfg()); err != nil {
+		utils.StorDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize); err != nil {
 		t.Fatal(err)
 	}
 	onStorCfg = mgoITCfg.StorDBName

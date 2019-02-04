@@ -250,6 +250,9 @@ func TestCgrCfgJSONDefaultsjsnDataDb(t *testing.T) {
 	if cgrCfg.DataDbPass != "" {
 		t.Error(cgrCfg.DataDbPass)
 	}
+	if cgrCfg.LoadHistorySize != 10 {
+		t.Error(cgrCfg.LoadHistorySize)
+	}
 }
 
 func TestCgrCfgJSONDefaultsStorDB(t *testing.T) {

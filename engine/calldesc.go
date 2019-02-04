@@ -53,12 +53,12 @@ func init() {
 		}
 		data, _ = NewMapStorage()
 	case utils.MONGO:
-		data, err = NewMongoStorage("127.0.0.1", "27017", "cgrates_data_test", "", "", utils.DataDB, nil, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}})
+		data, err = NewMongoStorage("127.0.0.1", "27017", "cgrates_data_test", "", "", utils.DataDB, nil, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
 		if err != nil {
 			log.Fatal(err)
 		}
 	case utils.REDIS:
-		data, _ = NewRedisStorage("127.0.0.1:6379", 12, "", utils.MSGPACK, utils.REDIS_MAX_CONNS, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, "")
+		data, _ = NewRedisStorage("127.0.0.1:6379", 12, "", utils.MSGPACK, utils.REDIS_MAX_CONNS, config.CacheConfig{utils.CacheRatingPlans: &config.CacheParamConfig{Precache: true}}, 10)
 		if err != nil {
 			log.Fatal(err)
 		}

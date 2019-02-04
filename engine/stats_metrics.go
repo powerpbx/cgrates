@@ -67,14 +67,14 @@ type ASRMetric struct {
 }
 
 func (asr *ASRMetric) AddCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) {
+	if !cdr.AnswerTime.IsZero() {
 		asr.answered += 1
 	}
 	asr.count += 1
 }
 
 func (asr *ASRMetric) RemoveCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) {
+	if !cdr.AnswerTime.IsZero() {
 		asr.answered -= 1
 	}
 	asr.count -= 1
@@ -127,14 +127,14 @@ type ACDMetric struct {
 }
 
 func (acd *ACDMetric) AddCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) {
+	if !cdr.AnswerTime.IsZero() {
 		acd.sum += cdr.Usage
 		acd.count += 1
 	}
 }
 
 func (acd *ACDMetric) RemoveCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) {
+	if !cdr.AnswerTime.IsZero() {
 		acd.sum -= cdr.Usage
 		acd.count -= 1
 	}
@@ -156,14 +156,14 @@ type TCDMetric struct {
 }
 
 func (tcd *TCDMetric) AddCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) {
+	if !cdr.AnswerTime.IsZero() {
 		tcd.sum += cdr.Usage
 		tcd.count += 1
 	}
 }
 
 func (tcd *TCDMetric) RemoveCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) {
+	if !cdr.AnswerTime.IsZero() {
 		tcd.sum -= cdr.Usage
 		tcd.count -= 1
 	}
@@ -184,14 +184,14 @@ type ACCMetric struct {
 }
 
 func (acc *ACCMetric) AddCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) && cdr.Cost >= 0 {
+	if !cdr.AnswerTime.IsZero() && cdr.Cost >= 0 {
 		acc.sum += cdr.Cost
 		acc.count += 1
 	}
 }
 
 func (acc *ACCMetric) RemoveCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) && cdr.Cost >= 0 {
+	if !cdr.AnswerTime.IsZero() && cdr.Cost >= 0 {
 		acc.sum -= cdr.Cost
 		acc.count -= 1
 	}
@@ -213,14 +213,14 @@ type TCCMetric struct {
 }
 
 func (tcc *TCCMetric) AddCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) && cdr.Cost >= 0 {
+	if !cdr.AnswerTime.IsZero() && cdr.Cost >= 0 {
 		tcc.sum += cdr.Cost
 		tcc.count += 1
 	}
 }
 
 func (tcc *TCCMetric) RemoveCdr(cdr *QCdr) {
-	if !(cdr.Usage == 0 && cdr.SetupTime == cdr.AnswerTime) && cdr.Cost >= 0 {
+	if !cdr.AnswerTime.IsZero() && cdr.Cost >= 0 {
 		tcc.sum -= cdr.Cost
 		tcc.count -= 1
 	}

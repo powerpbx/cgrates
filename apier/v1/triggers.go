@@ -291,8 +291,7 @@ func (self *ApierV1) SetAccountActionTriggers(attr AttrSetAccountActionTriggers,
 					at.Balance.Weight = attr.BalanceWeight
 				}
 				if attr.BalanceExpirationDate != nil {
-					balanceExpTime, err := utils.ParseTimeDetectLayout(*attr.BalanceExpirationDate,
-						"")
+					balanceExpTime, err := utils.ParseDate(*attr.BalanceExpirationDate)
 					if err != nil {
 						return 0, err
 					}
@@ -484,8 +483,7 @@ func (self *ApierV1) SetActionTrigger(attr AttrSetActionTrigger, reply *string) 
 		newAtr.Balance.Weight = attr.BalanceWeight
 	}
 	if attr.BalanceExpirationDate != nil {
-		balanceExpTime, err := utils.ParseTimeDetectLayout(*attr.BalanceExpirationDate,
-			"")
+		balanceExpTime, err := utils.ParseDate(*attr.BalanceExpirationDate)
 		if err != nil {
 			*reply = err.Error()
 			return err

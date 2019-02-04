@@ -660,10 +660,10 @@ const (
 	TBLTPThresholds       = "tp_thresholds"
 	TBLTPFilters          = "tp_filters"
 	SMCostsTBL            = "sm_costs"
-	CDRsTBL               = "tp_cdrs"
+	CDRsTBL               = "cdrs"
 	TBLTPSuppliers        = "tp_suppliers"
 	TBLTPAttributes       = "tp_attributes"
-	TBLVersions           = "tp_versions"
+	TBLVersions           = "versions"
 )
 
 //Cache Name

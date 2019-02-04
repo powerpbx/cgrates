@@ -63,7 +63,6 @@ type KamAuthReply struct {
 	Suppliers         string // List of suppliers, comma separated
 	ResourceAllocated bool
 	AllocationMessage string
-	CgrId             string
 	Error             string // Reply in case of error
 }
 
@@ -349,7 +348,7 @@ func (kev KamEvent) String() string {
 }
 
 func (kev KamEvent) AsKamAuthReply(maxSessionTime float64, suppliers string,
-	resAllocated bool, allocationMessage string, timezone string, rplyErr error) (kar *KamAuthReply, err error) {
+	resAllocated bool, allocationMessage string, rplyErr error) (kar *KamAuthReply, err error) {
 	kar = &KamAuthReply{Event: CGR_AUTH_REPLY, Suppliers: suppliers,
 		ResourceAllocated: resAllocated, AllocationMessage: allocationMessage}
 	if rplyErr != nil {
@@ -372,7 +371,6 @@ func (kev KamEvent) AsKamAuthReply(maxSessionTime float64, suppliers string,
 		maxSessionTime = maxSessionDur.Seconds()
 	}
 	kar.MaxSessionTime = int(utils.Round(maxSessionTime, 0, utils.ROUNDING_MIDDLE))
-	kar.CgrId = kev.GetCgrId(timezone)
 
 	return kar, nil
 }

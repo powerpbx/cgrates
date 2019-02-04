@@ -359,8 +359,7 @@ func (tpr *TpReader) LoadRatingPlans() (err error) {
 			rplBnd.SetTiming(t)
 			drs, exists := tpr.destinationRates[rplBnd.DestinationRatesId]
 			if !exists {
-				log.Printf("skipping destination rate %q in rating plan %q (not found)", rplBnd.DestinationRatesId, tag)
-				continue
+				return fmt.Errorf("could not find destination rate for tag %v", rplBnd.DestinationRatesId)
 			}
 			plan, exists := tpr.ratingPlans[tag]
 			if !exists {
@@ -389,7 +388,7 @@ func (tpr *TpReader) LoadRatingProfilesFiltered(qriedRpf *utils.TPRatingProfile)
 	for _, tpRpf := range rpfs {
 		resultRatingProfile = &RatingProfile{Id: tpRpf.KeyId()}
 		for _, tpRa := range tpRpf.RatingPlanActivations {
-			at, err := utils.ParseTimeDetectLayout(tpRa.ActivationTime, tpr.timezone)
+			at, err := utils.ParseDate(tpRa.ActivationTime)
 			if err != nil {
 				return fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
 			}
@@ -429,7 +428,7 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
 	for _, tpRpf := range mpTpRpfs {
 		rpf := &RatingProfile{Id: tpRpf.KeyId()}
 		for _, tpRa := range tpRpf.RatingPlanActivations {
-			at, err := utils.ParseTimeDetectLayout(tpRa.ActivationTime, tpr.timezone)
+			at, err := utils.ParseDate(tpRa.ActivationTime)
 			if err != nil {
 				return fmt.Errorf("cannot parse activation time from %v", tpRa.ActivationTime)
 			}
@@ -440,8 +439,7 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
 				}
 			}
 			if !exists {
-				log.Printf("skipping rating plan %q in rating profile %q (not found)", tpRa.RatingPlanId, rpf.Id)
-				continue
+				return fmt.Errorf("could not load rating plans for tag: %v", tpRa.RatingPlanId)
 			}
 			rpf.RatingPlanActivations = append(rpf.RatingPlanActivations,
 				&RatingPlanActivation{
@@ -451,11 +449,7 @@ func (tpr *TpReader) LoadRatingProfiles() (err error) {
 					CdrStatQueueIds: strings.Split(tpRa.CdrStatQueueIds, utils.INFIELD_SEP),
 				})
 		}
-		if (len(rpf.RatingPlanActivations) > 0) {
-			tpr.ratingProfiles[tpRpf.KeyId()] = rpf
-		} else {
-			log.Printf("skipping rating profile %q as no valid rating profile found", rpf.Id)
-		}
+		tpr.ratingProfiles[tpRpf.KeyId()] = rpf
 	}
 	return nil
 }
@@ -496,57 +490,6 @@ func (tpr *TpReader) LoadSharedGroups() error {
 	return tpr.LoadSharedGroupsFiltered(tpr.tpid, false)
 }
 
-func (tpr *TpReader) CleanDataDb(tpid string) (err error) {
-	var deleteItems []string
-
-	prefixes := []string{
-		utils.RATING_PROFILE_PREFIX,
-		utils.RATING_PLAN_PREFIX,
-	}
-
-	dataDbPrefixes := []string{
-		fmt.Sprintf("%s*out:%s:", utils.RATING_PROFILE_PREFIX, tpid),
-		fmt.Sprintf("%s%srp", utils.RATING_PLAN_PREFIX, tpid),
-	}
-
-	for idx := range prefixes {
-		dataDbPrefix := dataDbPrefixes[idx]
-		prefix := prefixes[idx]
-
-		storedbItems, err := tpr.GetLoadedIds(prefix)
-		if err != nil {
-			return err
-		}
-
-		// Remove from datadb items that do not exist in storedb
-		datadbItems, err := tpr.dm.DataDB().GetKeysForPrefix(dataDbPrefix)
-		if err != nil {
-			return err
-		}
-
-		for _, datadbItem := range datadbItems {
-			delete := true
-			for _, storedbItem := range storedbItems {
-				if datadbItem == prefix + storedbItem {
-					delete = false
-					break
-				}
-			}
-
-			if delete {
-				log.Printf("Removing %q as not found in storedb\n", datadbItem)
-				deleteItems = append(deleteItems, datadbItem)
-			}
-		}
-	}
-
-	if err := tpr.dm.DataDB().RemoveKeys(deleteItems); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (tpr *TpReader) LoadLCRs() (err error) {
 	tps, err := tpr.lr.GetTPLCRs(&utils.TPLcrRules{TPid: tpr.tpid})
 	if err != nil {
@@ -572,8 +515,7 @@ func (tpr *TpReader) LoadLCRs() (err error) {
 					}
 				}
 				if !found {
-					fmt.Printf("[LCR] Skip %q as ratingProfile %q not found\n", tpLcr.GetLcrRuleId(), rule.RpCategory)
-					break
+					return fmt.Errorf("[LCR] could not find ratingProfiles with prefix %s", ratingProfileSearchKey)
 				}
 
 				// check destination tags
@@ -2075,7 +2017,6 @@ func (tpr *TpReader) IsValid() bool {
 }
 
 func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err error) {
-	disable_reverse = true
 	if tpr.dm.dataDB == nil {
 		return errors.New("no database connection")
 	}
@@ -2084,14 +2025,8 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Destinations:")
-	} else {
-		log.Println("Destinations:", len(tpr.destinations))
 	}
 	for _, d := range tpr.destinations {
-		if destinationExists, err := tpr.dm.HasData(utils.DESTINATION_PREFIX, d.Id); err == nil && destinationExists {
-			continue
-		}
-		disable_reverse = false
 		err = tpr.dm.DataDB().SetDestination(d, utils.NonTransactional)
 		if err != nil {
 			return err
@@ -2105,13 +2040,9 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		for id, vals := range tpr.revDests {
 			log.Printf("\t %s : %+v", id, vals)
 		}
-	} else {
-		log.Println("Reverse Destinations:", len(tpr.revDests))
 	}
 	if verbose {
 		log.Print("Rating Plans:")
-	} else {
-		log.Println("Rating Plans:", len(tpr.ratingPlans))
 	}
 	for _, rp := range tpr.ratingPlans {
 		err = tpr.dm.SetRatingPlan(rp, utils.NonTransactional)
@@ -2124,8 +2055,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Rating Profiles:")
-	} else {
-		log.Println("Rating Profiles:", len(tpr.ratingProfiles))
 	}
 	for _, rp := range tpr.ratingProfiles {
 		err = tpr.dm.SetRatingProfile(rp, utils.NonTransactional)
@@ -2138,8 +2067,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Action Plans:")
-	} else {
-		log.Println("Action Plans:", len(tpr.actionPlans))
 	}
 	for k, ap := range tpr.actionPlans {
 		for _, at := range ap.ActionTimings {
@@ -2184,13 +2111,9 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		for id, vals := range tpr.acntActionPlans {
 			log.Printf("\t %s : %+v", id, vals)
 		}
-	} else {
-		log.Println("Account Action Plans:", len(tpr.acntActionPlans))
 	}
 	if verbose {
 		log.Print("Action Triggers:")
-	} else {
-		log.Println("Action Triggers:", len(tpr.actionsTriggers))
 	}
 	for k, atrs := range tpr.actionsTriggers {
 		err = tpr.dm.SetActionTriggers(k, atrs, utils.NonTransactional)
@@ -2203,8 +2126,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Shared Groups:")
-	} else {
-		log.Println("Shared Groups:", len(tpr.sharedGroups))
 	}
 	for k, sg := range tpr.sharedGroups {
 		err = tpr.dm.SetSharedGroup(sg, utils.NonTransactional)
@@ -2217,8 +2138,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("LCR Rules:")
-	} else {
-		log.Println("LCR Rules:", len(tpr.lcrs))
 	}
 	for k, lcr := range tpr.lcrs {
 		err = tpr.dm.SetLCR(lcr, utils.NonTransactional)
@@ -2231,8 +2150,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Actions:")
-	} else {
-		log.Println("Actions:", len(tpr.actions))
 	}
 	for k, as := range tpr.actions {
 		err = tpr.dm.SetActions(k, as, utils.NonTransactional)
@@ -2245,8 +2162,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Account Actions:")
-	} else {
-		log.Println("Account Actions:", len(tpr.accountActions))
 	}
 	for _, ub := range tpr.accountActions {
 		err = tpr.dm.DataDB().SetAccount(ub)
@@ -2259,8 +2174,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Derived Chargers:")
-	} else {
-		log.Println("Derived Chargers:", len(tpr.derivedChargers))
 	}
 	for key, dcs := range tpr.derivedChargers {
 		err = tpr.dm.DataDB().SetDerivedChargers(key, dcs, utils.NonTransactional)
@@ -2273,8 +2186,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("CDR Stats Queues:")
-	} else {
-		log.Println("CDR Stats Queues:", len(tpr.cdrStats))
 	}
 	for _, sq := range tpr.cdrStats {
 		err = tpr.dm.SetCdrStats(sq)
@@ -2287,8 +2198,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Users:")
-	} else {
-		log.Println("Users:", len(tpr.users))
 	}
 	for _, u := range tpr.users {
 		err = tpr.dm.SetUser(u)
@@ -2301,8 +2210,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Aliases:")
-	} else {
-		log.Println("Aliases:", len(tpr.aliases))
 	}
 	for _, al := range tpr.aliases {
 		err = tpr.dm.DataDB().SetAlias(al, utils.NonTransactional)
@@ -2318,13 +2225,9 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 		for id, vals := range tpr.revAliases {
 			log.Printf("\t %s : %+v", id, vals)
 		}
-	} else {
-		log.Println("Reverse Aliases:", len(tpr.revAliases))
 	}
 	if verbose {
 		log.Print("Filters:")
-	} else {
-		log.Println("Filters:", len(tpr.filters))
 	}
 	for _, tpTH := range tpr.filters {
 		th, err := APItoFilter(tpTH, tpr.timezone)
@@ -2340,8 +2243,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("ResourceProfiles:")
-	} else {
-		log.Println("ResourceProfiles:", len(tpr.resProfiles))
 	}
 	for _, tpRsp := range tpr.resProfiles {
 		rsp, err := APItoResource(tpRsp, tpr.timezone)
@@ -2357,8 +2258,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Resources:")
-	} else {
-		log.Println("Resources:", len(tpr.resources))
 	}
 	for _, rTid := range tpr.resources {
 		if err = tpr.dm.SetResource(&Resource{Tenant: rTid.Tenant, ID: rTid.ID, Usages: make(map[string]*ResourceUsage)}); err != nil {
@@ -2370,8 +2269,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("StatQueueProfiles:")
-	} else {
-		log.Println("StatQueueProfiles:", len(tpr.sqProfiles))
 	}
 	for _, tpST := range tpr.sqProfiles {
 		st, err := APItoStats(tpST, tpr.timezone)
@@ -2387,8 +2284,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("StatQueues:")
-	} else {
-		log.Println("StatQueues:", len(tpr.statQueues))
 	}
 	for _, sqTntID := range tpr.statQueues {
 		metrics := make(map[string]StatMetric)
@@ -2411,8 +2306,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("ThresholdProfiles:")
-	} else {
-		log.Println("ThresholdProfiles:", len(tpr.thProfiles))
 	}
 	for _, tpTH := range tpr.thProfiles {
 		th, err := APItoThresholdProfile(tpTH, tpr.timezone)
@@ -2428,8 +2321,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 	}
 	if verbose {
 		log.Print("Thresholds:")
-	} else {
-		log.Println("Thresholds:", len(tpr.thresholds))
 	}
 	for _, thd := range tpr.thresholds {
 		if err = tpr.dm.SetThreshold(&Threshold{Tenant: thd.Tenant, ID: thd.ID}); err != nil {
@@ -2442,8 +2333,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 
 	if verbose {
 		log.Print("SupplierProfiles:")
-	} else {
-		log.Println("SupplierProfiles:", len(tpr.sppProfiles))
 	}
 	for _, tpTH := range tpr.sppProfiles {
 		th, err := APItoSupplierProfile(tpTH, tpr.timezone)
@@ -2460,8 +2349,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 
 	if verbose {
 		log.Print("AttributeProfiles:")
-	} else {
-		log.Println("AttributeProfiles:", len(tpr.attributeProfiles))
 	}
 	for _, tpTH := range tpr.attributeProfiles {
 		th, err := APItoAttributeProfile(tpTH, tpr.timezone)
@@ -2478,8 +2365,6 @@ func (tpr *TpReader) WriteToDatabase(flush, verbose, disable_reverse bool) (err 
 
 	if verbose {
 		log.Print("Timings:")
-	} else {
-		log.Println("Timings:", len(tpr.timings))
 	}
 	for _, t := range tpr.timings {
 		if err = tpr.dm.SetTiming(t); err != nil {

@@ -36,7 +36,6 @@ import (
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/rpcclient"
 	"github.com/streadway/amqp"
-	"sort"
 )
 
 const (
@@ -300,41 +299,12 @@ func (self *ApierV1) LoadCdrStats(attrs AttrLoadCdrStats, reply *string) error {
 	*reply = OK
 	return nil
 }
-type AttrCleanDataDbUnusedTp struct {
-	TPid    string
-}
-
-// Remove storedb-non-existent rating plans and rating profiles from datadb
-func (self *ApierV1) CleanDataDbUnusedTp(attrs AttrCleanDataDbUnusedTp, reply *string) error {
-	if len(attrs.TPid) == 0 {
-		return utils.NewErrMandatoryIeMissing("TPid")
-	}
-
-	// Read all data from storedb
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
-	if err:= dbReader.LoadAll(); err != nil {
-		return utils.NewErrServerError(err)
-	}
-
-	// Clean unreferenced data
-	if err := dbReader.CleanDataDb(attrs.TPid); err != nil {
-		return err
-	}
-
-	// release tp data
-	dbReader.Init()
-
-	utils.Logger.Info("ApierV1.CleanDataDbUnusedTp ended.")
-	*reply = OK
-	return nil
-}
 
 type AttrLoadTpFromStorDb struct {
 	TPid     string
 	FlushDb  bool // Flush dataDB before loading
 	DryRun   bool // Only simulate, no write
 	Validate bool // Run structural checks
-	Cleanup  bool // Clean up unused rpl_ and rpf_
 }
 
 // Loads complete data in a TP from storDb
@@ -342,58 +312,35 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply 
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	utils.Logger.Info(fmt.Sprintf("ApierV1.LoadTariffPlanFromStorDb called for %q\n", attrs.TPid))
-
 	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
 	if err := dbReader.LoadAll(); err != nil {
-		utils.Logger.Err(err.Error())
 		return utils.NewErrServerError(err)
 	}
 	if attrs.Validate {
 		if !dbReader.IsValid() {
-			err := errors.New("ApierV1.LoadTariffPlanFromStorDb, validation ended with errors")
-			utils.Logger.Err(err.Error())
-			return err
+			*reply = OK
+			return errors.New("invalid data")
 		}
-		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, validation ended successfully")
 	}
 	if attrs.DryRun {
 		*reply = OK
 		return nil // Mission complete, no errors
 	}
-
-	if attrs.Cleanup {
-		if err := dbReader.CleanDataDb(attrs.TPid); err != nil {
-			utils.Logger.Err(err.Error())
-			return err
-		}
-		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, cleanup ended succesfully")
-		attrs.FlushDb = true // Cleanup requires flushing cache
-	}
-
 	if err := dbReader.WriteToDatabase(attrs.FlushDb, false, false); err != nil {
-		utils.Logger.Err(err.Error())
 		return utils.NewErrServerError(err)
 	}
-
-	if attrs.FlushDb {
-		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, flush cache.")
-		cache.Flush()
-	} else {
-		utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, reload cache.")
-		for _, prfx := range []string{
-			utils.DESTINATION_PREFIX,
-			utils.REVERSE_DESTINATION_PREFIX,
-			utils.ACTION_PLAN_PREFIX,
-			utils.AccountActionPlansPrefix,
-			utils.DERIVEDCHARGERS_PREFIX,
-			utils.ALIASES_PREFIX,
-			utils.REVERSE_ALIASES_PREFIX} {
-			loadedIDs, _ := dbReader.GetLoadedIds(prfx)
-			if err := self.DataManager.CacheDataFromDB(prfx, loadedIDs, true); err != nil {
-				utils.Logger.Err(err.Error())
-				return utils.NewErrServerError(err)
-			}
+	utils.Logger.Info("ApierV1.LoadTariffPlanFromStorDb, reloading cache.")
+	for _, prfx := range []string{
+		utils.DESTINATION_PREFIX,
+		utils.REVERSE_DESTINATION_PREFIX,
+		utils.ACTION_PLAN_PREFIX,
+		utils.AccountActionPlansPrefix,
+		utils.DERIVEDCHARGERS_PREFIX,
+		utils.ALIASES_PREFIX,
+		utils.REVERSE_ALIASES_PREFIX} {
+		loadedIDs, _ := dbReader.GetLoadedIds(prfx)
+		if err := self.DataManager.CacheDataFromDB(prfx, loadedIDs, true); err != nil {
+			return utils.NewErrServerError(err)
 		}
 	}
 	aps, _ := dbReader.GetLoadedIds(utils.ACTION_PLAN_PREFIX)
@@ -413,19 +360,15 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply 
 	if len(cstKeys) != 0 && self.CdrStatsSrv != nil {
 		var out int
 		if err := self.CdrStatsSrv.Call("CDRStatsV1.ReloadQueues", cstKeys, &out); err != nil {
-			utils.Logger.Err(err.Error())
 			return err
 		}
 	}
 	if len(userKeys) != 0 && self.Users != nil {
 		var r string
 		if err := self.Users.Call("AliasV1.ReloadUsers", "", &r); err != nil {
-			utils.Logger.Err(err.Error())
 			return err
 		}
 	}
-
-	utils.Logger.Info(fmt.Sprintf("ApierV1.LoadTariffPlanFromStorDb ended successfully for %q\n", attrs.TPid))
 	*reply = OK
 	return nil
 }
@@ -507,52 +450,6 @@ func (self *ApierV1) SetRatingProfile(attrs AttrSetRatingProfile, reply *string)
 		return utils.NewErrServerError(err)
 	}
 	*reply = OK
-	return nil
-}
-
-type AttrPrintRatingProfile struct {
-	Tenant                string                      // Tenant's Id
-	Category              string                      // TypeOfRecord
-	Direction             string                      // Traffic direction, OUT is the only one supported for now
-	Subject               string                      // Rating subject, usually the same as account
-}
-
-// Print rating profiles of given account
-func (self *ApierV1) PrintRatingProfile(attrs AttrPrintRatingProfile, reply *string) (err error) {
-	// Set default values
-	if attrs.Direction == "" {
-		attrs.Direction = utils.OUT
-	}
-	if attrs.Category == "" {
-		attrs.Direction = utils.CALL
-	}
-
-	// Check needed arguments
-	if missing := utils.MissingStructFields(&attrs, []string{"Tenant", "Direction", "Subject", "Category"}); len(missing) != 0 {
-		return utils.NewErrMandatoryIeMissing(missing...)
-	}
-
-	// Get rating profiles
-	tpRpf := utils.TPRatingProfile{Tenant: attrs.Tenant, Category: attrs.Category, Direction: attrs.Direction, Subject: attrs.Subject}
-	keyId := tpRpf.KeyId()
-	var rpfl *engine.RatingProfile
-	if rpfl, err = self.DataManager.GetRatingProfile(keyId, false, utils.NonTransactional); err != nil && err != utils.ErrNotFound {
-		return utils.NewErrServerError(err)
-	}
-	if rpfl == nil {
-		return utils.NewErrServerError(errors.New("No rating profile found"))
-	}
-
-	// Order in order of activation and format output
-	sort.SliceStable(rpfl.RatingPlanActivations, func(i, j int) bool { return rpfl.RatingPlanActivations[i].ActivationTime.Before(rpfl.RatingPlanActivations[j].ActivationTime) })
-	var activations []string
-	for _, ra := range rpfl.RatingPlanActivations {
-		activations = append(activations, fmt.Sprintf("%s (%s)", ra.RatingPlanId, ra.ActivationTime.Format(time.RFC3339)))
-	}
-
-	// Log result and set as reply
-	utils.Logger.Info(fmt.Sprintf("Rating profile %q: ", rpfl.Id) + strings.Join(activations, ", "))
-	*reply = strings.Join(activations, ", ")
 	return nil
 }
 

@@ -38,7 +38,7 @@ var (
 	history_fn   = os.Getenv("HOME") + "/.cgr_history"
 	version      = flag.Bool("version", false, "Prints the application version.")
 	verbose      = flag.Bool("verbose", false, "Show extra info about command execution.")
-	server       = flag.String("server", "trunks.ivozprovider.local:2012", "server address host:port")
+	server       = flag.String("server", "127.0.0.1:2012", "server address host:port")
 	rpc_encoding = flag.String("rpc_encoding", "json", "RPC encoding used <gob|json>")
 	client       *rpcclient.RpcClient
 )

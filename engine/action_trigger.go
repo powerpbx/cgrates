@@ -81,8 +81,7 @@ func (at *ActionTrigger) Execute(ub *Account, sq *CDRStatsQueueTriggered) (err e
 			a.Balance = &BalanceFilter{}
 		}
 		if a.ExpirationString != "" { // if it's *unlimited then it has to be zero time'
-			if expDate, parseErr := utils.ParseTimeDetectLayout(a.ExpirationString,
-				""); parseErr == nil {
+			if expDate, parseErr := utils.ParseDate(a.ExpirationString); parseErr == nil {
 				a.Balance.ExpirationDate = &time.Time{}
 				*a.Balance.ExpirationDate = expDate
 			}
