@@ -1,4 +1,4 @@
-ivozprovider-cgrates (2.9~0.9.1.1ppx1) UNRELEASED; urgency=medium
+ivozprovider-cgrates (1:2.9~0.9.1.1ppx1) UNRELEASED; urgency=medium
 
   * Upstream merge
   * Version change to ppx1
